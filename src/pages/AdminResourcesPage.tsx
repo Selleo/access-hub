@@ -89,6 +89,7 @@ export function AdminResourcesPage() {
                   <th className="px-4 py-3">Approval</th>
                   <th className="px-4 py-3">Owner</th>
                   <th className="px-4 py-3">Created</th>
+                  <th className="px-4 py-3">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -116,6 +117,15 @@ export function AdminResourcesPage() {
                     </td>
                     <td className="px-4 py-3">{resource.owner_name ?? resource.owner_email ?? "Unknown"}</td>
                     <td className="px-4 py-3">{new Date(resource.created_at).toLocaleDateString()}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/admin/resources/${resource.id}/edit`)}
+                        className="rounded-lg border border-[#d6dbe8] px-2.5 py-1 text-[12px] font-medium text-[#4f566f] hover:bg-[#f6f7fb]"
+                      >
+                        Edit
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

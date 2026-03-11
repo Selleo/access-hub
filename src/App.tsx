@@ -2,7 +2,9 @@ import "./index.css";
 import type { ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AdminResourceNewPage } from "./pages/AdminResourceNewPage";
+import { AdminResourceEditPage } from "./pages/AdminResourceEditPage";
 import { AdminResourcesPage } from "./pages/AdminResourcesPage";
+import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { AuthProvider, useAuth } from "./auth-context";
 import { LoginPage } from "./pages/LoginPage";
 import { AuditLogPage } from "./pages/AuditLogPage";
@@ -10,7 +12,6 @@ import { MyAccessPage } from "./pages/MyAccessPage";
 import { PurchaseRequestsPage } from "./pages/PurchaseRequestsPage";
 import { RequestsPage } from "./pages/RequestsPage";
 import { ResourcesPage } from "./pages/ResourcesPage";
-import { SecretsPage } from "./pages/SecretsPage";
 
 function AuthLoading() {
   return (
@@ -72,6 +73,14 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/admin/resources/:id/edit"
+        element={
+          <RequireAuth>
+            <AdminResourceEditPage />
+          </RequireAuth>
+        }
+      />
+      <Route
         path="/purchase-requests"
         element={
           <RequireAuth>
@@ -104,10 +113,10 @@ function AppRoutes() {
         }
       />
       <Route
-        path="/secrets"
+        path="/approvals"
         element={
           <RequireAuth>
-            <SecretsPage />
+            <ApprovalsPage />
           </RequireAuth>
         }
       />

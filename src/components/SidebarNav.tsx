@@ -4,7 +4,6 @@ import {
   Globe,
   KeyRound,
   ScrollText,
-  Server,
   ShieldCheck,
 } from "lucide-react";
 
@@ -39,7 +38,6 @@ export function SidebarNav() {
   const location = useLocation();
   const navigate = useNavigate();
   const path = location.pathname;
-  const tab = new URLSearchParams(location.search).get("tab");
 
   return (
     <>
@@ -62,16 +60,16 @@ export function SidebarNav() {
       <p className="mt-5 text-[11px] font-semibold tracking-[0.14em] text-[#7c8295]">ACCESS</p>
       <div className="mt-2 space-y-1">
         <NavItem
-          active={path === "/my-access" && tab !== "approvals"}
+          active={path === "/my-access"}
           icon={<KeyRound size={16} />}
           label="My Access"
           onClick={() => navigate("/my-access")}
         />
         <NavItem
-          active={path === "/my-access" && tab === "approvals"}
+          active={path === "/approvals"}
           icon={<ShieldCheck size={16} />}
           label="Approvals"
-          onClick={() => navigate("/my-access?tab=approvals")}
+          onClick={() => navigate("/approvals")}
         />
       </div>
 
@@ -88,12 +86,6 @@ export function SidebarNav() {
           icon={<ScrollText size={16} />}
           label="Audit Logs"
           onClick={() => navigate("/audit-log")}
-        />
-        <NavItem
-          active={path === "/secrets"}
-          icon={<Server size={16} />}
-          label="Secrets"
-          onClick={() => navigate("/secrets")}
         />
       </div>
     </>

@@ -9,10 +9,6 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
-  Eye,
-  EyeOff,
-  Copy,
-  Check,
   ExternalLink,
   ShieldCheck,
   User,
@@ -35,13 +31,6 @@ type Grant = {
   revoked_at: string | null;
 };
 
-type Secret = {
-  id: string;
-  name: string;
-  encrypted_value: string;
-  type: string;
-};
-
 type AccessDetail = {
   id: string;
   status: string;
@@ -61,7 +50,6 @@ type AccessDetail = {
   owner_name: string | null;
   approvals: Approval[];
   grant: Grant | null;
-  secrets: Secret[];
 };
 
 type Props = {
@@ -78,15 +66,6 @@ const STATUS_STYLES: Record<string, { bg: string; dot: string }> = {
   active: { bg: "bg-emerald-50 text-emerald-700", dot: "bg-emerald-400" },
   expired: { bg: "bg-orange-50 text-orange-700", dot: "bg-orange-400" },
   revoked: { bg: "bg-red-50 text-red-700", dot: "bg-red-400" },
-};
-
-const SECRET_TYPE_LABELS: Record<string, string> = {
-  password: "Password",
-  mfa_totp: "OTP / 2FA Code",
-  ssh_key: "SSH Key",
-  api_key: "API Key",
-  note: "Secure Note",
-  backup_codes: "Backup Codes",
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -120,66 +99,6 @@ function formatDateTime(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function SecretField({ secret }: { secret: Secret }) {
-  const [visible, setVisible] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const isMultiline = secret.type === "ssh_key" || secret.type === "backup_codes" || secret.type === "note";
-
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(secret.encrypted_value);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <div className="rounded-xl border border-[#e7eaf2] p-4">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <span className="text-[13px] font-medium text-[#232733]">{secret.name}</span>
-          <span className="rounded-md bg-[#f4f5f7] px-1.5 py-0.5 text-[11px] text-[#8990a3]">
-            {SECRET_TYPE_LABELS[secret.type] ?? secret.type}
-          </span>
-        </div>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setVisible(!visible)}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-[#8990a3] hover:bg-[#f1f2f6] hover:text-[#4f566f]"
-            title={visible ? "Hide" : "Reveal"}
-          >
-            {visible ? <EyeOff size={14} /> : <Eye size={14} />}
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleCopy()}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-[#8990a3] hover:bg-[#f1f2f6] hover:text-[#4f566f]"
-            title="Copy"
-          >
-            {copied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-          </button>
-        </div>
-      </div>
-      {isMultiline ? (
-        <pre
-          className={`rounded-lg bg-[#f7f8fa] px-3 py-2.5 font-mono text-[13px] leading-relaxed whitespace-pre-wrap break-all ${
-            visible ? "text-[#232733]" : "text-transparent select-none [text-shadow:0_0_8px_rgba(0,0,0,0.3)]"
-          }`}
-        >
-          {visible ? secret.encrypted_value : secret.encrypted_value.replace(/./g, "•")}
-        </pre>
-      ) : (
-        <div
-          className={`rounded-lg bg-[#f7f8fa] px-3 py-2.5 font-mono text-[14px] ${
-            visible ? "text-[#232733]" : "text-transparent select-none [text-shadow:0_0_8px_rgba(0,0,0,0.3)]"
-          }`}
-        >
-          {visible ? secret.encrypted_value : "••••••••••••••••"}
-        </div>
-      )}
-    </div>
-  );
 }
 
 function TimelineItem({
@@ -239,8 +158,6 @@ export function AccessDetailModal({ requestId, open, onClose }: Props) {
   if (!open) return null;
 
   const d = detail;
-  const grantActive = d?.grant?.status === "active";
-
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto pt-10 pb-10">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={onClose} />
@@ -383,24 +300,6 @@ export function AccessDetailModal({ requestId, open, onClose }: Props) {
                   ) : null}
                 </div>
               </div>
-
-              {/* Secrets - only when grant is active */}
-              {grantActive && d.secrets.length > 0 ? (
-                <div>
-                  <p className="mb-3 text-[12px] font-medium text-[#8990a3]">Credentials</p>
-                  <div className="space-y-3">
-                    {d.secrets.map((secret) => (
-                      <SecretField key={secret.id} secret={secret} />
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
-              {grantActive && d.secrets.length === 0 ? (
-                <div className="rounded-xl bg-[#f7f8fa] px-4 py-3 text-center text-[13px] text-[#8990a3]">
-                  No credentials stored for this resource yet.
-                </div>
-              ) : null}
 
               {d.status === "pending" ? (
                 <div className="rounded-xl bg-amber-50 px-4 py-3 text-[13px] text-amber-700">
