@@ -32,6 +32,16 @@ type Props = {
   onSuccess: () => void;
 };
 
+async function parseJsonResponse<T>(res: Response): Promise<T | null> {
+  const text = await res.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
 const LEASE_OPTIONS = [
   { value: 0, label: "Forever", icon: Infinity },
   { value: 1, label: "1 day", icon: Clock },
@@ -58,10 +68,11 @@ export function RequestAccessModal({ resource, open, onClose, onSuccess }: Props
     setResult(null);
 
     fetch(`/api/resources/${resource.id}/roles`)
-      .then((r) => r.json())
+      .then(async (r) => (await parseJsonResponse<Role[]>(r)) ?? [])
       .then((data) => {
         setRoles(data);
-        if (data.length === 1) setSelectedRoleId(data[0].id);
+        const onlyRole = data.length === 1 ? data[0] : null;
+        if (onlyRole) setSelectedRoleId(onlyRole.id);
       })
       .finally(() => setLoadingRoles(false));
   }, [open, resource.id]);
@@ -91,13 +102,13 @@ export function RequestAccessModal({ resource, open, onClose, onSuccess }: Props
       });
 
       if (!res.ok) {
-        const err = await res.json();
-        setResult({ type: "error", message: err.error ?? "Something went wrong" });
+        const err = await parseJsonResponse<{ error?: string }>(res);
+        setResult({ type: "error", message: err?.error ?? "Something went wrong" });
         return;
       }
 
-      const data = await res.json();
-      if (data.status === "approved") {
+      const data = await parseJsonResponse<{ status?: string }>(res);
+      if (data?.status === "approved") {
         setResult({ type: "success", message: "Access granted immediately!" });
       } else {
         setResult({ type: "success", message: "Request submitted and pending approval." });
