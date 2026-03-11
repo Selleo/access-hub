@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth-context";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
+import { ResourcesPage } from "./pages/ResourcesPage";
 
 function AuthLoading() {
   return (
@@ -37,6 +38,14 @@ function AppRoutes() {
         element={
           <RequireAuth>
             <DashboardPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/resources"
+        element={
+          <RequireAuth>
+            <ResourcesPage />
           </RequireAuth>
         }
       />

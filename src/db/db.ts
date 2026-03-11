@@ -4,6 +4,12 @@ import { Kysely, type Migration, Migrator } from "kysely";
 import fs from "node:fs";
 
 import * as Mig001 from "./migrations/001_create_auth_tables.ts";
+import * as Mig002 from "./migrations/002_create_resources.ts";
+import * as Mig003 from "./migrations/003_create_access_requests.ts";
+import * as Mig004 from "./migrations/004_create_access_grants.ts";
+import * as Mig005 from "./migrations/005_create_purchase_requests.ts";
+import * as Mig006 from "./migrations/006_create_audit_log.ts";
+import * as Mig007 from "./migrations/007_create_secrets.ts";
 
 fs.mkdirSync("data", { recursive: true });
 
@@ -20,6 +26,12 @@ export async function migrateToLatest() {
       async getMigrations(): Promise<Record<string, Migration>> {
         return {
           "001": Mig001,
+          "002": Mig002,
+          "003": Mig003,
+          "004": Mig004,
+          "005": Mig005,
+          "006": Mig006,
+          "007": Mig007,
         };
       },
     },
