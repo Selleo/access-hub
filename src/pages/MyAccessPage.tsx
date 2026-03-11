@@ -37,6 +37,18 @@ type PurchaseRequestItem = {
   reviewer_name: string | null;
 };
 
+type AccessGrantItem = {
+  id: string;
+  access_request_id: string | null;
+  status: string;
+  granted_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+  resource_name: string | null;
+  resource_type: string | null;
+  role_name: string | null;
+};
+
 type AccessApprovalItem = {
   id: string;
   requester_name: string | null;
@@ -60,6 +72,7 @@ type PurchaseApprovalItem = {
 type MyRequestsPayload = {
   access_requests: AccessRequestItem[];
   purchase_requests: PurchaseRequestItem[];
+  access_grants: AccessGrantItem[];
 };
 
 type MyApprovalsPayload = {
@@ -69,7 +82,8 @@ type MyApprovalsPayload = {
 
 type UnifiedRow = {
   id: string;
-  kind: "access" | "purchase";
+  kind: "access" | "purchase" | "grant";
+  request_id: string | null;
   name: string;
   detail: string;
   status: string;
@@ -128,13 +142,18 @@ function formatTime(iso: string): string {
   return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 }
 
-function unify(access: AccessRequestItem[], purchase: PurchaseRequestItem[]): UnifiedRow[] {
+function unify(
+  access: AccessRequestItem[],
+  purchase: PurchaseRequestItem[],
+  grants: AccessGrantItem[]
+): UnifiedRow[] {
   const rows: UnifiedRow[] = [];
 
   for (const a of access) {
     rows.push({
       id: a.id,
       kind: "access",
+      request_id: a.id,
       name: a.resource_name ?? "Unknown resource",
       detail: a.role_name ?? "",
       status: a.status,
@@ -148,12 +167,27 @@ function unify(access: AccessRequestItem[], purchase: PurchaseRequestItem[]): Un
     rows.push({
       id: p.id,
       kind: "purchase",
+      request_id: null,
       name: p.software_name,
       detail: p.estimated_cost ? `Est. ${p.estimated_cost}` : "",
       status: p.status,
       type: "purchase",
       lease: "—",
       created_at: p.created_at,
+    });
+  }
+
+  for (const g of grants) {
+    rows.push({
+      id: g.id,
+      kind: "grant",
+      request_id: g.access_request_id,
+      name: g.resource_name ?? "Unknown resource",
+      detail: g.role_name ? `${g.role_name} (Granted)` : "Granted access",
+      status: g.status,
+      type: g.resource_type,
+      lease: g.expires_at ? `Until ${formatDate(g.expires_at)}` : "Forever",
+      created_at: g.granted_at,
     });
   }
 
@@ -167,6 +201,7 @@ export function MyAccessPage() {
   const [activeTab, setActiveTab] = useState<"requests" | "approvals">("requests");
   const [accessRequests, setAccessRequests] = useState<AccessRequestItem[]>([]);
   const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequestItem[]>([]);
+  const [accessGrants, setAccessGrants] = useState<AccessGrantItem[]>([]);
   const [accessApprovals, setAccessApprovals] = useState<AccessApprovalItem[]>([]);
   const [purchaseApprovals, setPurchaseApprovals] = useState<PurchaseApprovalItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -181,6 +216,7 @@ export function MyAccessPage() {
     const data = (await res.json()) as MyRequestsPayload;
     setAccessRequests(data.access_requests ?? []);
     setPurchaseRequests(data.purchase_requests ?? []);
+    setAccessGrants(data.access_grants ?? []);
   };
 
   const loadMyApprovals = async () => {
@@ -239,7 +275,7 @@ export function MyAccessPage() {
     setActionLoadingId(null);
   };
 
-  const allRows = unify(accessRequests, purchaseRequests);
+  const allRows = unify(accessRequests, purchaseRequests, accessGrants);
   const q = search.toLowerCase();
   const filtered = q
     ? allRows.filter(
@@ -265,7 +301,7 @@ export function MyAccessPage() {
               : "text-[#7b8195] hover:text-[#4f566f]"
           }`}
         >
-          Requests
+          My Access
         </button>
         <button
           type="button"
@@ -335,9 +371,15 @@ export function MyAccessPage() {
                   {filtered.map((row) => (
                     <tr
                       key={`${row.kind}-${row.id}`}
-                      onClick={() => (row.kind === "access" ? setSelectedRequestId(row.id) : undefined)}
+                      onClick={() => {
+                        if ((row.kind === "access" || row.kind === "grant") && row.request_id) {
+                          setSelectedRequestId(row.request_id);
+                        }
+                      }}
                       className={`border-b border-[#f7f8fa] last:border-0 hover:bg-[#fafbfc] transition-colors ${
-                        row.kind === "access" ? "cursor-pointer" : ""
+                        (row.kind === "access" || (row.kind === "grant" && !!row.request_id))
+                          ? "cursor-pointer"
+                          : ""
                       }`}
                     >
                       <td className="px-5 py-3.5">
@@ -356,7 +398,7 @@ export function MyAccessPage() {
                         <span className="inline-flex items-center gap-1 text-[13px] text-[#6c7285]">
                           {row.lease === "Forever" ? (
                             <Infinity size={13} className="text-[#8990a3]" />
-                          ) : row.lease !== "—" ? (
+                          ) : row.lease !== "—" && !row.lease.startsWith("Until ") ? (
                             <Clock size={13} className="text-[#8990a3]" />
                           ) : null}
                           {row.lease}

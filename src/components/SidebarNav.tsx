@@ -64,7 +64,7 @@ export function SidebarNav() {
         <NavItem
           active={path === "/my-access" && tab !== "approvals"}
           icon={<KeyRound size={16} />}
-          label="Requests"
+          label="My Access"
           onClick={() => navigate("/my-access")}
         />
         <NavItem

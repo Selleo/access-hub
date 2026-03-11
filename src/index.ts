@@ -645,9 +645,29 @@ const server = serve({
           .orderBy("purchase_request.created_at", "desc")
           .execute();
 
+        const accessGrants = await db
+          .selectFrom("access_grant")
+          .leftJoin("resource", "resource.id", "access_grant.resource_id")
+          .leftJoin("resource_role", "resource_role.id", "access_grant.resource_role_id")
+          .select([
+            "access_grant.id",
+            "access_grant.access_request_id",
+            "access_grant.status",
+            "access_grant.granted_at",
+            "access_grant.expires_at",
+            "access_grant.revoked_at",
+            "resource.name as resource_name",
+            "resource.type as resource_type",
+            "resource_role.name as role_name",
+          ])
+          .where("access_grant.user_id", "=", session.user.id)
+          .orderBy("access_grant.granted_at", "desc")
+          .execute();
+
         return Response.json({
           access_requests: accessRequests,
           purchase_requests: purchaseRequests,
+          access_grants: accessGrants,
         });
       } catch (error) {
         console.error("Failed to fetch my requests", error);
