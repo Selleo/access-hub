@@ -10,6 +10,7 @@ import { MyAccessPage } from "./pages/MyAccessPage";
 import { PurchaseRequestsPage } from "./pages/PurchaseRequestsPage";
 import { RequestsPage } from "./pages/RequestsPage";
 import { ResourcesPage } from "./pages/ResourcesPage";
+import { SecretsPage } from "./pages/SecretsPage";
 
 function AuthLoading() {
   return (
@@ -99,6 +100,14 @@ function AppRoutes() {
         element={
           <RequireAuth>
             <MyAccessPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/secrets"
+        element={
+          <RequireAuth>
+            <SecretsPage />
           </RequireAuth>
         }
       />

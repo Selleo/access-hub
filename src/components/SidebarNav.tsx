@@ -39,6 +39,7 @@ export function SidebarNav() {
   const location = useLocation();
   const navigate = useNavigate();
   const path = location.pathname;
+  const tab = new URLSearchParams(location.search).get("tab");
 
   return (
     <>
@@ -61,10 +62,16 @@ export function SidebarNav() {
       <p className="mt-5 text-[11px] font-semibold tracking-[0.14em] text-[#7c8295]">ACCESS</p>
       <div className="mt-2 space-y-1">
         <NavItem
-          active={path === "/my-access"}
+          active={path === "/my-access" && tab !== "approvals"}
           icon={<KeyRound size={16} />}
-          label="My Access"
+          label="Requests"
           onClick={() => navigate("/my-access")}
+        />
+        <NavItem
+          active={path === "/my-access" && tab === "approvals"}
+          icon={<ShieldCheck size={16} />}
+          label="Approvals"
+          onClick={() => navigate("/my-access?tab=approvals")}
         />
       </div>
 

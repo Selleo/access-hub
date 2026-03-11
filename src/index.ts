@@ -369,10 +369,11 @@ const server = serve({
 
         // If auto-approved, create the grant immediately
         if (!needsApproval) {
+          const grantId = crypto.randomUUID();
           await db
             .insertInto("access_grant")
             .values({
-              id: crypto.randomUUID(),
+              id: grantId,
               user_id: session.user.id,
               resource_id,
               resource_role_id,
@@ -381,6 +382,26 @@ const server = serve({
               granted_at: now,
               expires_at: expiresAt,
               revoked_at: null,
+              created_at: now,
+            })
+            .execute();
+
+          await db
+            .insertInto("audit_log")
+            .values({
+              id: crypto.randomUUID(),
+              actor_id: session.user.id,
+              action: "access.granted",
+              entity_type: "access_grant",
+              entity_id: grantId,
+              metadata: JSON.stringify({
+                mode: "auto",
+                access_request_id: requestId,
+                resource_id,
+                resource_role_id,
+                expires_at: expiresAt,
+              }),
+              ip_address: req.headers.get("x-forwarded-for") ?? null,
               created_at: now,
             })
             .execute();
@@ -633,6 +654,191 @@ const server = serve({
         return Response.json({ error: "Failed to fetch my requests" }, { status: 500 });
       }
     },
+    "/api/my-approvals": async (req) => {
+      try {
+        if (req.method !== "GET") {
+          return Response.json({ error: "Method not allowed" }, { status: 405 });
+        }
+
+        let session;
+        try {
+          session = await requireSession(req);
+        } catch {
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
+        const accessApprovals = await db
+          .selectFrom("access_request")
+          .leftJoin("resource", "resource.id", "access_request.resource_id")
+          .leftJoin("resource_role", "resource_role.id", "access_request.resource_role_id")
+          .leftJoin("user as requester", "requester.id", "access_request.requester_id")
+          .select([
+            "access_request.id",
+            "access_request.requester_id",
+            "access_request.status",
+            "access_request.reason",
+            "access_request.lease_duration_days",
+            "access_request.expires_at",
+            "access_request.created_at",
+            "resource.name as resource_name",
+            "resource_role.name as role_name",
+            "requester.name as requester_name",
+            "requester.email as requester_email",
+          ])
+          .where("access_request.status", "=", "pending")
+          .where("access_request.requester_id", "!=", session.user.id)
+          .orderBy("access_request.created_at", "desc")
+          .execute();
+
+        const purchaseApprovals = await db
+          .selectFrom("purchase_request")
+          .leftJoin("user as requester", "requester.id", "purchase_request.requester_id")
+          .select([
+            "purchase_request.id",
+            "purchase_request.requester_id",
+            "purchase_request.software_name",
+            "purchase_request.justification",
+            "purchase_request.estimated_cost",
+            "purchase_request.status",
+            "purchase_request.created_at",
+            "requester.name as requester_name",
+            "requester.email as requester_email",
+          ])
+          .where("purchase_request.status", "=", "pending")
+          .where("purchase_request.requester_id", "!=", session.user.id)
+          .orderBy("purchase_request.created_at", "desc")
+          .execute();
+
+        return Response.json({
+          access_approvals: accessApprovals,
+          purchase_approvals: purchaseApprovals,
+        });
+      } catch (error) {
+        console.error("Failed to fetch my approvals", error);
+        return Response.json({ error: "Failed to fetch my approvals" }, { status: 500 });
+      }
+    },
+
+    "/api/secrets": async (req) => {
+      try {
+        let session;
+        try {
+          session = await requireSession(req);
+        } catch {
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
+        if (req.method === "GET") {
+          const url = new URL(req.url);
+          const resourceId = url.searchParams.get("resource_id")?.trim() ?? "";
+
+          let query = db
+            .selectFrom("secret")
+            .leftJoin("resource", "resource.id", "secret.resource_id")
+            .leftJoin("user", "user.id", "secret.created_by")
+            .select([
+              "secret.id",
+              "secret.resource_id",
+              "secret.name",
+              "secret.type",
+              "secret.created_at",
+              "secret.updated_at",
+              "resource.name as resource_name",
+              "resource.type as resource_type",
+              "user.name as created_by_name",
+            ])
+            .orderBy("resource.name", "asc")
+            .orderBy("secret.name", "asc");
+
+          if (resourceId) {
+            query = query.where("secret.resource_id", "=", resourceId);
+          }
+
+          const secrets = await query.execute();
+          return Response.json(secrets);
+        }
+
+        if (req.method === "POST") {
+          let body: {
+            resource_id?: string;
+            name?: string;
+            type?: string;
+            value?: string;
+          };
+          try {
+            body = await req.json();
+          } catch {
+            return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+          }
+
+          const resourceId = body.resource_id?.trim() ?? "";
+          const name = body.name?.trim() ?? "";
+          const type = body.type?.trim() ?? "";
+          const value = body.value ?? "";
+
+          if (!resourceId || !name || !type || !value) {
+            return Response.json(
+              { error: "resource_id, name, type, and value are required" },
+              { status: 400 }
+            );
+          }
+
+          const validTypes = ["password", "mfa_totp", "ssh_key", "api_key", "note", "backup_codes"];
+          if (!validTypes.includes(type)) {
+            return Response.json({ error: `type must be one of: ${validTypes.join(", ")}` }, { status: 400 });
+          }
+
+          // Verify resource exists
+          const resource = await db
+            .selectFrom("resource")
+            .select("id")
+            .where("id", "=", resourceId)
+            .executeTakeFirst();
+
+          if (!resource) {
+            return Response.json({ error: "Resource not found" }, { status: 404 });
+          }
+
+          const now = new Date().toISOString();
+          const secretId = crypto.randomUUID();
+
+          await db
+            .insertInto("secret")
+            .values({
+              id: secretId,
+              resource_id: resourceId,
+              name,
+              encrypted_value: value,
+              type,
+              created_by: session.user.id,
+              created_at: now,
+              updated_at: now,
+            })
+            .execute();
+
+          await db
+            .insertInto("audit_log")
+            .values({
+              id: crypto.randomUUID(),
+              actor_id: session.user.id,
+              action: "secret.created",
+              entity_type: "secret",
+              entity_id: secretId,
+              metadata: JSON.stringify({ resource_id: resourceId, name, type }),
+              ip_address: req.headers.get("x-forwarded-for") ?? null,
+              created_at: now,
+            })
+            .execute();
+
+          return Response.json({ id: secretId }, { status: 201 });
+        }
+
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      } catch (error) {
+        console.error("Failed to process secrets", error);
+        return Response.json({ error: "Failed to process secrets" }, { status: 500 });
+      }
+    },
 
     "/": index,
   },
@@ -659,6 +865,137 @@ const server = serve({
         .execute();
 
       return Response.json(roles);
+    }
+
+    // Match /api/access-requests/:id
+    const accessMatch = url.pathname.match(/^\/api\/access-requests\/([^/]+)$/);
+    if (accessMatch) {
+      if (req.method !== "PATCH") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+
+      let session;
+      try {
+        session = await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      const requestId = accessMatch[1]!;
+
+      let body: { status?: string };
+      try {
+        body = await req.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+      }
+
+      const nextStatus = body.status;
+      if (!nextStatus || !["approved", "rejected"].includes(nextStatus)) {
+        return Response.json(
+          { error: "status must be one of: approved, rejected" },
+          { status: 400 }
+        );
+      }
+
+      const existing = await db
+        .selectFrom("access_request")
+        .select([
+          "id",
+          "requester_id",
+          "resource_id",
+          "resource_role_id",
+          "status",
+          "expires_at",
+        ])
+        .where("id", "=", requestId)
+        .executeTakeFirst();
+
+      if (!existing) {
+        return Response.json({ error: "Access request not found" }, { status: 404 });
+      }
+
+      if (existing.requester_id === session.user.id) {
+        return Response.json(
+          { error: "You cannot approve your own access request" },
+          { status: 403 }
+        );
+      }
+
+      if (existing.status !== "pending") {
+        return Response.json(
+          { error: `Access request is already ${existing.status}` },
+          { status: 409 }
+        );
+      }
+
+      const now = new Date().toISOString();
+
+      await db
+        .updateTable("access_request")
+        .set({
+          status: nextStatus,
+          updated_at: now,
+        })
+        .where("id", "=", requestId)
+        .execute();
+
+      if (nextStatus === "approved") {
+        const grantId = crypto.randomUUID();
+        await db
+          .insertInto("access_grant")
+          .values({
+            id: grantId,
+            user_id: existing.requester_id,
+            resource_id: existing.resource_id,
+            resource_role_id: existing.resource_role_id,
+            access_request_id: existing.id,
+            status: "active",
+            granted_at: now,
+            expires_at: existing.expires_at,
+            revoked_at: null,
+            created_at: now,
+          })
+          .execute();
+
+        await db
+          .insertInto("audit_log")
+          .values({
+            id: crypto.randomUUID(),
+            actor_id: session.user.id,
+            action: "access.granted",
+            entity_type: "access_grant",
+            entity_id: grantId,
+            metadata: JSON.stringify({
+              mode: "manual",
+              access_request_id: existing.id,
+              resource_id: existing.resource_id,
+              resource_role_id: existing.resource_role_id,
+              expires_at: existing.expires_at,
+            }),
+            ip_address: req.headers.get("x-forwarded-for") ?? null,
+            created_at: now,
+          })
+          .execute();
+      }
+
+      await db
+        .insertInto("audit_log")
+        .values({
+          id: crypto.randomUUID(),
+          actor_id: session.user.id,
+          action: "access.reviewed",
+          entity_type: "access_request",
+          entity_id: requestId,
+          metadata: JSON.stringify({
+            to: nextStatus,
+          }),
+          ip_address: req.headers.get("x-forwarded-for") ?? null,
+          created_at: now,
+        })
+        .execute();
+
+      return Response.json({ id: requestId, status: nextStatus });
     }
 
     // Match /api/purchase-requests/:id
@@ -752,6 +1089,135 @@ const server = serve({
         .execute();
 
       return Response.json({ id: requestId, status: nextStatus });
+    }
+
+    // Match /api/secrets/:id
+    const secretMatch = url.pathname.match(/^\/api\/secrets\/([^/]+)$/);
+    if (secretMatch) {
+      let session;
+      try {
+        session = await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      const secretId = secretMatch[1]!;
+
+      if (req.method === "PATCH") {
+        let body: { name?: string; type?: string; value?: string };
+        try {
+          body = await req.json();
+        } catch {
+          return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+        }
+
+        const existing = await db
+          .selectFrom("secret")
+          .select(["id", "resource_id", "name"])
+          .where("id", "=", secretId)
+          .executeTakeFirst();
+
+        if (!existing) {
+          return Response.json({ error: "Secret not found" }, { status: 404 });
+        }
+
+        const updates: Record<string, string> = {};
+        if (body.name?.trim()) updates.name = body.name.trim();
+        if (body.type?.trim()) updates.type = body.type.trim();
+        if (body.value) updates.encrypted_value = body.value;
+        updates.updated_at = new Date().toISOString();
+
+        await db
+          .updateTable("secret")
+          .set(updates)
+          .where("id", "=", secretId)
+          .execute();
+
+        await db
+          .insertInto("audit_log")
+          .values({
+            id: crypto.randomUUID(),
+            actor_id: session.user.id,
+            action: "secret.updated",
+            entity_type: "secret",
+            entity_id: secretId,
+            metadata: JSON.stringify({
+              resource_id: existing.resource_id,
+              fields: Object.keys(updates).filter((k) => k !== "updated_at"),
+            }),
+            ip_address: req.headers.get("x-forwarded-for") ?? null,
+            created_at: updates.updated_at,
+          })
+          .execute();
+
+        return Response.json({ id: secretId });
+      }
+
+      if (req.method === "DELETE") {
+        const existing = await db
+          .selectFrom("secret")
+          .select(["id", "resource_id", "name", "type"])
+          .where("id", "=", secretId)
+          .executeTakeFirst();
+
+        if (!existing) {
+          return Response.json({ error: "Secret not found" }, { status: 404 });
+        }
+
+        await db.deleteFrom("secret").where("id", "=", secretId).execute();
+
+        const now = new Date().toISOString();
+        await db
+          .insertInto("audit_log")
+          .values({
+            id: crypto.randomUUID(),
+            actor_id: session.user.id,
+            action: "secret.deleted",
+            entity_type: "secret",
+            entity_id: secretId,
+            metadata: JSON.stringify({
+              resource_id: existing.resource_id,
+              name: existing.name,
+              type: existing.type,
+            }),
+            ip_address: req.headers.get("x-forwarded-for") ?? null,
+            created_at: now,
+          })
+          .execute();
+
+        return Response.json({ ok: true });
+      }
+
+      // GET single secret (with value)
+      if (req.method === "GET") {
+        const secret = await db
+          .selectFrom("secret")
+          .select(["id", "resource_id", "name", "encrypted_value", "type", "created_at", "updated_at"])
+          .where("id", "=", secretId)
+          .executeTakeFirst();
+
+        if (!secret) {
+          return Response.json({ error: "Secret not found" }, { status: 404 });
+        }
+
+        await db
+          .insertInto("audit_log")
+          .values({
+            id: crypto.randomUUID(),
+            actor_id: session.user.id,
+            action: "secret.viewed",
+            entity_type: "secret",
+            entity_id: secretId,
+            metadata: JSON.stringify({ resource_id: secret.resource_id }),
+            ip_address: req.headers.get("x-forwarded-for") ?? null,
+            created_at: new Date().toISOString(),
+          })
+          .execute();
+
+        return Response.json(secret);
+      }
+
+      return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
     // Match /api/my-access/:requestId
