@@ -32,6 +32,12 @@ type ResourceSeed = {
   roles: { name: string; description?: string; requires_approval?: number }[];
 };
 
+const OWNER_ROLE = {
+  name: "Owner",
+  description: "Resource ownership and management permissions",
+  requires_approval: 1,
+};
+
 const resources: ResourceSeed[] = [
   // --- Design ---
   {
@@ -42,9 +48,9 @@ const resources: ResourceSeed[] = [
     requires_approval: 0,
     approval_count: 0,
     roles: [
-      { name: "Viewer" },
+      { name: "View" },
       { name: "Editor" },
-      { name: "Admin", requires_approval: 1 },
+      { name: "Dev", requires_approval: 1 },
     ],
   },
   {
@@ -534,7 +540,20 @@ for (const r of resources) {
     })
     .execute();
 
-  for (const role of r.roles) {
+  const seededRoles = r.roles.length > 0 ? [...r.roles] : [];
+  const existingRoleNames = new Set(seededRoles.map((role) => role.name.toLowerCase()));
+
+  if (!existingRoleNames.has(OWNER_ROLE.name.toLowerCase())) {
+    seededRoles.push(OWNER_ROLE);
+    existingRoleNames.add(OWNER_ROLE.name.toLowerCase());
+  }
+
+  const rolesToCreate =
+    seededRoles.length > 0
+      ? seededRoles
+      : [{ name: "User", description: "Default role", requires_approval: undefined }];
+
+  for (const role of rolesToCreate) {
     await db
       .insertInto("resource_role")
       .values({

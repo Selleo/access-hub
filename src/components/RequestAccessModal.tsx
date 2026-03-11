@@ -53,6 +53,7 @@ const LEASE_OPTIONS = [
 export function RequestAccessModal({ resource, open, onClose, onSuccess }: Props) {
   const [roles, setRoles] = useState<Role[]>([]);
   const [loadingRoles, setLoadingRoles] = useState(true);
+  const [rolesError, setRolesError] = useState<string | null>(null);
   const [selectedRoleId, setSelectedRoleId] = useState("");
   const [leaseDays, setLeaseDays] = useState(0);
   const [reason, setReason] = useState("");
@@ -62,17 +63,27 @@ export function RequestAccessModal({ resource, open, onClose, onSuccess }: Props
   useEffect(() => {
     if (!open) return;
     setLoadingRoles(true);
+    setRolesError(null);
     setSelectedRoleId("");
     setLeaseDays(0);
     setReason("");
     setResult(null);
 
     fetch(`/api/resources/${resource.id}/roles`)
-      .then(async (r) => (await parseJsonResponse<Role[]>(r)) ?? [])
-      .then((data) => {
-        setRoles(data);
-        const onlyRole = data.length === 1 ? data[0] : null;
-        if (onlyRole) setSelectedRoleId(onlyRole.id);
+      .then(async (r) => {
+        if (!r.ok) {
+          const err = await parseJsonResponse<{ error?: string }>(r);
+          throw new Error(err?.error ?? "Failed to load roles");
+        }
+        const data = await parseJsonResponse<unknown>(r);
+        const safeRoles = Array.isArray(data) ? (data as Role[]) : [];
+        setRoles(safeRoles);
+        const firstRole = safeRoles[0] ?? null;
+        if (firstRole) setSelectedRoleId(firstRole.id);
+      })
+      .catch((error: unknown) => {
+        setRoles([]);
+        setRolesError(error instanceof Error ? error.message : "Failed to load roles");
       })
       .finally(() => setLoadingRoles(false));
   }, [open, resource.id]);
@@ -159,6 +170,14 @@ export function RequestAccessModal({ resource, open, onClose, onSuccess }: Props
             {loadingRoles ? (
               <div className="flex items-center gap-2 py-3 text-[13px] text-[#8990a3]">
                 <Loader2 size={14} className="animate-spin" /> Loading roles...
+              </div>
+            ) : rolesError ? (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700">
+                {rolesError}
+              </div>
+            ) : roles.length === 0 ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-700">
+                This resource has no roles configured yet. Ask the owner to add roles before requesting access.
               </div>
             ) : (
               <div className="space-y-2">

@@ -2,8 +2,11 @@ import "./index.css";
 import type { ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth-context";
-import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
+import { AuditLogPage } from "./pages/AuditLogPage";
+import { MyAccessPage } from "./pages/MyAccessPage";
+import { PurchaseRequestsPage } from "./pages/PurchaseRequestsPage";
+import { RequestsPage } from "./pages/RequestsPage";
 import { ResourcesPage } from "./pages/ResourcesPage";
 
 function AuthLoading() {
@@ -37,7 +40,7 @@ function AppRoutes() {
         path="/"
         element={
           <RequireAuth>
-            <DashboardPage />
+            <RequestsPage />
           </RequireAuth>
         }
       />
@@ -46,6 +49,38 @@ function AppRoutes() {
         element={
           <RequireAuth>
             <ResourcesPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/purchase-requests"
+        element={
+          <RequireAuth>
+            <PurchaseRequestsPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/requests"
+        element={
+          <RequireAuth>
+            <RequestsPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/audit-log"
+        element={
+          <RequireAuth>
+            <AuditLogPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/my-access"
+        element={
+          <RequireAuth>
+            <MyAccessPage />
           </RequireAuth>
         }
       />

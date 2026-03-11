@@ -3,11 +3,9 @@ import { useLocation, useNavigate } from "react-router-dom";
 import {
   Globe,
   KeyRound,
-  LayoutDashboard,
   ScrollText,
   Server,
   ShieldCheck,
-  ShoppingCart,
 } from "lucide-react";
 
 function NavItem({
@@ -47,9 +45,9 @@ export function SidebarNav() {
       <p className="mt-5 text-[11px] font-semibold tracking-[0.14em] text-[#7c8295]">MAIN</p>
       <div className="mt-2 space-y-1">
         <NavItem
-          active={path === "/"}
-          icon={<LayoutDashboard size={16} />}
-          label="Dashboard"
+          active={path === "/" || path === "/requests"}
+          icon={<ShieldCheck size={16} />}
+          label="Requests"
           onClick={() => navigate("/")}
         />
         <NavItem
@@ -63,12 +61,6 @@ export function SidebarNav() {
       <p className="mt-5 text-[11px] font-semibold tracking-[0.14em] text-[#7c8295]">ACCESS</p>
       <div className="mt-2 space-y-1">
         <NavItem
-          active={path === "/requests"}
-          icon={<ShieldCheck size={16} />}
-          label="Requests"
-          onClick={() => navigate("/requests")}
-        />
-        <NavItem
           active={path === "/my-access"}
           icon={<KeyRound size={16} />}
           label="My Access"
@@ -76,18 +68,18 @@ export function SidebarNav() {
         />
       </div>
 
-      <p className="mt-5 text-[11px] font-semibold tracking-[0.14em] text-[#7c8295]">MANAGE</p>
+      <p className="mt-5 text-[11px] font-semibold tracking-[0.14em] text-[#7c8295]">ADMIN</p>
       <div className="mt-2 space-y-1">
         <NavItem
-          active={path === "/purchase-requests"}
-          icon={<ShoppingCart size={16} />}
-          label="Purchase Requests"
-          onClick={() => navigate("/purchase-requests")}
+          active={path === "/resources" || path.startsWith("/resources/")}
+          icon={<Globe size={16} />}
+          label="Manage Resources"
+          onClick={() => navigate("/resources")}
         />
         <NavItem
           active={path === "/audit-log"}
           icon={<ScrollText size={16} />}
-          label="Audit Log"
+          label="Audit Logs"
           onClick={() => navigate("/audit-log")}
         />
         <NavItem
