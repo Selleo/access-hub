@@ -1,6 +1,8 @@
 import "./index.css";
 import type { ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
+import { AdminResourceNewPage } from "./pages/AdminResourceNewPage";
+import { AdminResourcesPage } from "./pages/AdminResourcesPage";
 import { AuthProvider, useAuth } from "./auth-context";
 import { LoginPage } from "./pages/LoginPage";
 import { AuditLogPage } from "./pages/AuditLogPage";
@@ -49,6 +51,22 @@ function AppRoutes() {
         element={
           <RequireAuth>
             <ResourcesPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/admin/resources"
+        element={
+          <RequireAuth>
+            <AdminResourcesPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/admin/resources/new"
+        element={
+          <RequireAuth>
+            <AdminResourceNewPage />
           </RequireAuth>
         }
       />

@@ -71,10 +71,10 @@ export function SidebarNav() {
       <p className="mt-5 text-[11px] font-semibold tracking-[0.14em] text-[#7c8295]">ADMIN</p>
       <div className="mt-2 space-y-1">
         <NavItem
-          active={path === "/resources" || path.startsWith("/resources/")}
+          active={path === "/admin/resources" || path.startsWith("/admin/resources/")}
           icon={<Globe size={16} />}
           label="Manage Resources"
-          onClick={() => navigate("/resources")}
+          onClick={() => navigate("/admin/resources")}
         />
         <NavItem
           active={path === "/audit-log"}

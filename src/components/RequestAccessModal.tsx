@@ -191,24 +191,24 @@ export function RequestAccessModal({ resource, open, onClose, onSuccess }: Props
                       key={role.id}
                       type="button"
                       onClick={() => setSelectedRoleId(role.id)}
-                      className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${
+                      className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors ${
                         selectedRoleId === role.id
                           ? "border-[#232733] bg-[#fafafa]"
                           : "border-[#e7eaf2] hover:border-[#cdd2de]"
                       }`}
                     >
                       <div className="flex-1">
-                        <span className="text-[14px] font-medium text-[#232733]">
+                        <span className="text-[13px] font-medium text-[#232733]">
                           {role.name}
                         </span>
                         {role.description ? (
-                          <p className="mt-0.5 text-[12px] text-[#8990a3]">{role.description}</p>
+                          <p className="mt-0.5 text-[11px] text-[#8990a3]">{role.description}</p>
                         ) : null}
                       </div>
                       {roleApproval ? (
-                        <ShieldCheck size={15} className="text-amber-500" />
+                        <ShieldCheck size={13} className="text-amber-500" />
                       ) : (
-                        <ShieldOff size={15} className="text-emerald-500" />
+                        <ShieldOff size={13} className="text-emerald-500" />
                       )}
                     </button>
                   );

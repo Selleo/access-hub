@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { ChevronDown, CircleUserRound, LogOut } from "lucide-react";
 import { useAuth } from "../auth-context";
-import { SearchInput } from "./SearchInput";
 
 export function PageHeader({ title }: { title: string }) {
   const { user, logout } = useAuth();
@@ -21,7 +20,6 @@ export function PageHeader({ title }: { title: string }) {
         {title}
       </h1>
       <div className="flex items-center gap-3">
-        <SearchInput />
         <div className="relative">
           <button
             type="button"

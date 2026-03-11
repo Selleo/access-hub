@@ -635,7 +635,6 @@ const server = serve({
     },
 
     "/": index,
-    "/*": index,
   },
 
   async fetch(req) {
@@ -753,6 +752,109 @@ const server = serve({
         .execute();
 
       return Response.json({ id: requestId, status: nextStatus });
+    }
+
+    // Match /api/my-access/:requestId
+    const myAccessMatch = url.pathname.match(/^\/api\/my-access\/([^/]+)$/);
+    if (myAccessMatch) {
+      if (req.method !== "GET") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+
+      let session;
+      try {
+        session = await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      const requestId = myAccessMatch[1]!;
+
+      // Get the access request with resource and role info
+      const request = await db
+        .selectFrom("access_request")
+        .leftJoin("resource", "resource.id", "access_request.resource_id")
+        .leftJoin("resource_role", "resource_role.id", "access_request.resource_role_id")
+        .leftJoin("user as owner", "owner.id", "resource.owner_id")
+        .select([
+          "access_request.id",
+          "access_request.requester_id",
+          "access_request.resource_id",
+          "access_request.resource_role_id",
+          "access_request.status",
+          "access_request.reason",
+          "access_request.lease_duration_days",
+          "access_request.expires_at",
+          "access_request.created_at",
+          "access_request.updated_at",
+          "resource.name as resource_name",
+          "resource.description as resource_description",
+          "resource.type as resource_type",
+          "resource.url as resource_url",
+          "resource.requires_approval",
+          "resource.approval_count",
+          "resource_role.name as role_name",
+          "resource_role.description as role_description",
+          "owner.name as owner_name",
+        ])
+        .where("access_request.id", "=", requestId)
+        .where("access_request.requester_id", "=", session.user.id)
+        .executeTakeFirst();
+
+      if (!request) {
+        return Response.json({ error: "Request not found" }, { status: 404 });
+      }
+
+      // Get approvals
+      const approvals = await db
+        .selectFrom("access_approval")
+        .leftJoin("user", "user.id", "access_approval.approver_id")
+        .select([
+          "access_approval.id",
+          "access_approval.decision",
+          "access_approval.comment",
+          "access_approval.created_at",
+          "user.name as approver_name",
+        ])
+        .where("access_approval.access_request_id", "=", requestId)
+        .orderBy("access_approval.created_at", "asc")
+        .execute();
+
+      // Get grant if exists
+      const grant = await db
+        .selectFrom("access_grant")
+        .select([
+          "id",
+          "status",
+          "granted_at",
+          "expires_at",
+          "revoked_at",
+        ])
+        .where("access_request_id", "=", requestId)
+        .where("user_id", "=", session.user.id)
+        .executeTakeFirst();
+
+      // Get secrets only if access is granted and active
+      let secrets: { id: string; name: string; encrypted_value: string; type: string }[] = [];
+      if (grant && grant.status === "active" && request.resource_id) {
+        secrets = await db
+          .selectFrom("secret")
+          .select(["id", "name", "encrypted_value", "type"])
+          .where("resource_id", "=", request.resource_id)
+          .orderBy("name", "asc")
+          .execute();
+      }
+
+      return Response.json({
+        ...request,
+        approvals,
+        grant,
+        secrets,
+      });
+    }
+
+    if (url.pathname.startsWith("/api/")) {
+      return Response.json({ error: "Not found" }, { status: 404 });
     }
 
     // SPA fallback: serve index.html for non-API routes

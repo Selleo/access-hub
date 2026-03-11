@@ -1,5 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import {
+  Globe,
+  KeyRound,
+  Server,
+  ShoppingCart,
+  Clock,
+  Infinity,
+  Inbox,
+  Search,
+} from "lucide-react";
 import { AppLayout } from "../components/AppLayout";
+import { AccessDetailModal } from "../components/AccessDetailModal";
 import { PageHeader } from "../components/PageHeader";
 import { Pane } from "../components/Pane";
 
@@ -25,120 +36,249 @@ type PurchaseRequestItem = {
   reviewer_name: string | null;
 };
 
-type MyRequestsPayload = {
-  access_requests: AccessRequestItem[];
-  purchase_requests: PurchaseRequestItem[];
+type UnifiedRow = {
+  id: string;
+  kind: "access" | "purchase";
+  name: string;
+  detail: string;
+  status: string;
+  type: string | null;
+  lease: string;
+  created_at: string;
 };
 
-const STATUS_BADGE: Record<string, string> = {
-  pending: "bg-amber-50 text-amber-700",
-  approved: "bg-emerald-50 text-emerald-700",
-  rejected: "bg-red-50 text-red-700",
-  purchased: "bg-blue-50 text-blue-700",
-  active: "bg-emerald-50 text-emerald-700",
+const STATUS_STYLES: Record<string, { bg: string; dot: string }> = {
+  pending: { bg: "bg-amber-50 text-amber-700", dot: "bg-amber-400" },
+  approved: { bg: "bg-emerald-50 text-emerald-700", dot: "bg-emerald-400" },
+  rejected: { bg: "bg-red-50 text-red-700", dot: "bg-red-400" },
+  cancelled: { bg: "bg-gray-100 text-gray-600", dot: "bg-gray-400" },
+  purchased: { bg: "bg-blue-50 text-blue-700", dot: "bg-blue-400" },
+  active: { bg: "bg-emerald-50 text-emerald-700", dot: "bg-emerald-400" },
 };
 
-async function parseJsonResponse<T>(res: Response): Promise<T | null> {
-  const text = await res.text();
-  if (!text) return null;
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    return null;
+
+function StatusBadge({ status }: { status: string }) {
+  const s = STATUS_STYLES[status] ?? { bg: "bg-gray-100 text-gray-600", dot: "bg-gray-400" };
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[12px] font-medium ${s.bg}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
+      {status}
+    </span>
+  );
+}
+
+function TypeIcon({ type }: { type: string | null }) {
+  switch (type) {
+    case "software":
+      return <Globe size={14} className="text-blue-500" />;
+    case "secure_note":
+      return <KeyRound size={14} className="text-amber-500" />;
+    case "infrastructure":
+      return <Server size={14} className="text-emerald-500" />;
+    case "purchase":
+      return <ShoppingCart size={14} className="text-violet-500" />;
+    default:
+      return <Globe size={14} className="text-gray-400" />;
   }
+}
+
+function formatLease(days: number | null): string {
+  if (!days) return "Forever";
+  if (days === 1) return "1 day";
+  return `${days} days`;
+}
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+}
+
+function unify(
+  access: AccessRequestItem[],
+  purchase: PurchaseRequestItem[]
+): UnifiedRow[] {
+  const rows: UnifiedRow[] = [];
+
+  for (const a of access) {
+    rows.push({
+      id: a.id,
+      kind: "access",
+      name: a.resource_name ?? "Unknown resource",
+      detail: a.role_name ?? "",
+      status: a.status,
+      type: a.resource_type,
+      lease: formatLease(a.lease_duration_days),
+      created_at: a.created_at,
+    });
+  }
+
+  for (const p of purchase) {
+    rows.push({
+      id: p.id,
+      kind: "purchase",
+      name: p.software_name,
+      detail: p.estimated_cost ? `Est. ${p.estimated_cost}` : "",
+      status: p.status,
+      type: "purchase",
+      lease: "—",
+      created_at: p.created_at,
+    });
+  }
+
+  rows.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  return rows;
 }
 
 export function MyAccessPage() {
   const [accessRequests, setAccessRequests] = useState<AccessRequestItem[]>([]);
   const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequestItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const load = async () => {
       const res = await fetch("/api/my-requests");
-      if (!res.ok) {
-        setAccessRequests([]);
-        setPurchaseRequests([]);
-        setLoading(false);
-        return;
+      if (res.ok) {
+        const data = await res.json();
+        setAccessRequests(data.access_requests ?? []);
+        setPurchaseRequests(data.purchase_requests ?? []);
       }
-
-      const data = await parseJsonResponse<MyRequestsPayload>(res);
-      setAccessRequests(data?.access_requests ?? []);
-      setPurchaseRequests(data?.purchase_requests ?? []);
       setLoading(false);
     };
-
     void load();
   }, []);
 
+  const allRows = unify(accessRequests, purchaseRequests);
+  const q = search.toLowerCase();
+  const filtered = q
+    ? allRows.filter(
+        (r) =>
+          r.name.toLowerCase().includes(q) ||
+          r.detail.toLowerCase().includes(q) ||
+          r.status.toLowerCase().includes(q) ||
+          (r.type ?? "").toLowerCase().includes(q)
+      )
+    : allRows;
+
   return (
     <AppLayout>
-      <PageHeader title="Requests" />
+      <PageHeader title="My Access" />
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-2">
-        <Pane className="p-5">
-          <h2 className="mb-3 text-[16px] font-semibold text-[#232733]">My Access Requests</h2>
-          {loading ? (
-            <p className="py-10 text-center text-[14px] text-[#8990a3]">Loading requests...</p>
-          ) : accessRequests.length === 0 ? (
-            <p className="py-10 text-center text-[14px] text-[#8990a3]">No access requests yet.</p>
-          ) : (
-            <div className="space-y-3">
-              {accessRequests.map((item) => (
-                <div key={item.id} className="rounded-xl border border-[#e7eaf2] p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="text-[14px] font-semibold text-[#232733]">
-                        {item.resource_name ?? "Unknown resource"} {item.role_name ? `(${item.role_name})` : ""}
-                      </h3>
-                      <p className="mt-0.5 text-[12px] text-[#8990a3]">
-                        {new Date(item.created_at).toLocaleString()}
-                      </p>
-                    </div>
-                    <span className={`rounded-lg px-2 py-1 text-[11px] font-medium ${STATUS_BADGE[item.status] ?? "bg-gray-50 text-gray-700"}`}>
-                      {item.status}
-                    </span>
-                  </div>
-                  {item.reason ? <p className="mt-2 text-[13px] text-[#4f566f]">{item.reason}</p> : null}
-                </div>
-              ))}
-            </div>
-          )}
-        </Pane>
-
-        <Pane className="p-5">
-          <h2 className="mb-3 text-[16px] font-semibold text-[#232733]">My Purchase Requests</h2>
-          {loading ? (
-            <p className="py-10 text-center text-[14px] text-[#8990a3]">Loading requests...</p>
-          ) : purchaseRequests.length === 0 ? (
-            <p className="py-10 text-center text-[14px] text-[#8990a3]">No purchase requests yet.</p>
-          ) : (
-            <div className="space-y-3">
-              {purchaseRequests.map((item) => (
-                <div key={item.id} className="rounded-xl border border-[#e7eaf2] p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="text-[14px] font-semibold text-[#232733]">{item.software_name}</h3>
-                      <p className="mt-0.5 text-[12px] text-[#8990a3]">
-                        {new Date(item.created_at).toLocaleString()}
-                      </p>
-                    </div>
-                    <span className={`rounded-lg px-2 py-1 text-[11px] font-medium ${STATUS_BADGE[item.status] ?? "bg-gray-50 text-gray-700"}`}>
-                      {item.status}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-[13px] text-[#4f566f]">{item.justification}</p>
-                  <p className="mt-2 text-[12px] text-[#8990a3]">
-                    {item.estimated_cost ? `Cost: ${item.estimated_cost}` : "No cost provided"}
-                    {item.reviewer_name ? ` • Reviewed by ${item.reviewer_name}` : ""}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-        </Pane>
+      {/* Search */}
+      <div className="mt-5 flex h-10 w-full max-w-md items-center rounded-xl border border-[#dfe5f0] bg-white px-3 text-[#8990a3] focus-within:border-[#b8bdd0] focus-within:ring-1 focus-within:ring-[#b8bdd0]/30">
+        <Search size={16} />
+        <input
+          ref={searchRef}
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Filter by resource, role, status..."
+          className="ml-2 flex-1 bg-transparent text-[14px] text-[#4f566f] outline-none placeholder:text-[#8f97ab]"
+        />
+        {search ? (
+          <button
+            type="button"
+            onClick={() => { setSearch(""); searchRef.current?.focus(); }}
+            className="ml-2 text-[12px] text-[#8990a3] hover:text-[#4f566f]"
+          >
+            Clear
+          </button>
+        ) : null}
       </div>
+
+      {/* Table */}
+      <Pane className="mt-4 overflow-hidden">
+        {loading ? (
+          <p className="py-16 text-center text-[14px] text-[#8990a3]">Loading...</p>
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#f1f2f6] text-[#8990a3]">
+              <Inbox size={22} />
+            </div>
+            <p className="mt-3 text-[14px] font-medium text-[#232733]">No requests</p>
+            <p className="mt-1 text-[13px] text-[#8990a3]">
+              {search
+                ? "No requests match your search."
+                : "You haven't made any requests yet."}
+            </p>
+          </div>
+        ) : (
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-[#f0f1f5] text-left text-[12px] font-medium text-[#8990a3]">
+                <th className="px-5 py-3">Resource</th>
+                <th className="px-5 py-3">Role / Detail</th>
+                <th className="px-5 py-3">Type</th>
+                <th className="px-5 py-3">Lease</th>
+                <th className="px-5 py-3">Status</th>
+                <th className="px-5 py-3">Requested</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((row) => (
+                <tr
+                  key={`${row.kind}-${row.id}`}
+                  onClick={() => row.kind === "access" ? setSelectedRequestId(row.id) : undefined}
+                  className={`border-b border-[#f7f8fa] last:border-0 hover:bg-[#fafbfc] transition-colors ${row.kind === "access" ? "cursor-pointer" : ""}`}
+                >
+                  <td className="px-5 py-3.5">
+                    <div className="flex items-center gap-2.5">
+                      <TypeIcon type={row.type} />
+                      <span className="text-[14px] font-medium text-[#232733]">{row.name}</span>
+                    </div>
+                  </td>
+                  <td className="px-5 py-3.5 text-[13px] text-[#6c7285]">
+                    {row.detail || "—"}
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <span className="inline-flex items-center gap-1.5 rounded-md bg-[#f4f5f7] px-2 py-0.5 text-[12px] text-[#6c7285] capitalize">
+                      {row.kind === "purchase" ? "Purchase" : (row.type ?? "—").replace("_", " ")}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <span className="inline-flex items-center gap-1 text-[13px] text-[#6c7285]">
+                      {row.lease === "Forever" ? (
+                        <Infinity size={13} className="text-[#8990a3]" />
+                      ) : row.lease !== "—" ? (
+                        <Clock size={13} className="text-[#8990a3]" />
+                      ) : null}
+                      {row.lease}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <StatusBadge status={row.status} />
+                  </td>
+                  <td className="px-5 py-3.5 text-[13px] text-[#8990a3]">
+                    <div>{formatDate(row.created_at)}</div>
+                    <div className="text-[11px]">{formatTime(row.created_at)}</div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Pane>
+
+      {selectedRequestId ? (
+        <AccessDetailModal
+          requestId={selectedRequestId}
+          open={!!selectedRequestId}
+          onClose={() => setSelectedRequestId(null)}
+        />
+      ) : null}
+
+      {!loading && search && filtered.length > 0 ? (
+        <p className="mt-2 text-right text-[12px] text-[#b0b5c5]">
+          Showing {filtered.length} of {allRows.length} request{allRows.length !== 1 ? "s" : ""}
+        </p>
+      ) : null}
     </AppLayout>
   );
 }
