@@ -7,11 +7,13 @@ type ResourceFormValue = {
   tag: string;
   description: string;
   globalVisible: boolean;
+  approvalPolicyId: string;
 };
 
 type Props = {
   value: ResourceFormValue;
   onChange: (patch: Partial<ResourceFormValue>) => void;
+  approvalPolicies: Array<{ id: string; name: string }>;
 };
 
 const TYPE_OPTIONS = [
@@ -19,7 +21,7 @@ const TYPE_OPTIONS = [
   { value: "secure_note", label: "Secure Note" },
 ] as const;
 
-export function ResourceFormFields({ value, onChange }: Props) {
+export function ResourceFormFields({ value, onChange, approvalPolicies }: Props) {
   return (
     <div className="space-y-3">
       <div>
@@ -77,6 +79,24 @@ export function ResourceFormFields({ value, onChange }: Props) {
           rows={3}
           className="w-full resize-none rounded-xl border border-[#e7eaf2] px-3 py-2 text-[14px] outline-none placeholder:text-[#b6bccb] focus:border-[#b8bdd0]"
         />
+      </div>
+
+      <div>
+        <label className="mb-1 block text-[13px] font-medium text-[#4f566f]">Policy</label>
+        <select
+          value={value.approvalPolicyId}
+          onChange={(e) => onChange({ approvalPolicyId: e.target.value })}
+          className="w-full rounded-xl border border-[#e7eaf2] bg-white px-3 py-2 text-[14px] outline-none focus:border-[#b8bdd0]"
+        >
+          <option value="" disabled>
+            Select policy
+          </option>
+          {approvalPolicies.map((policy) => (
+            <option key={policy.id} value={policy.id}>
+              {policy.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div>

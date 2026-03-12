@@ -150,6 +150,7 @@ const server = serve({
             tag?: string | null;
             global_visible?: number;
             url?: string | null;
+            approval_policy_id?: string;
           };
           try {
             body = await req.json();
@@ -163,9 +164,10 @@ const server = serve({
           const tag = body.tag?.trim() ?? null;
           const globalVisible = body.global_visible == null ? 1 : body.global_visible ? 1 : 0;
           const url = body.url?.trim() ?? null;
+          const approvalPolicyId = body.approval_policy_id?.trim() ?? "";
 
-          if (!name || !type) {
-            return Response.json({ error: "name and type are required" }, { status: 400 });
+          if (!name || !type || !approvalPolicyId) {
+            return Response.json({ error: "name, type and approval_policy_id are required" }, { status: 400 });
           }
 
           if (!["software", "secure_note"].includes(type)) {
@@ -179,6 +181,13 @@ const server = serve({
               return Response.json({ error: "Invalid URL" }, { status: 400 });
             }
           }
+
+          const policy = await db
+            .selectFrom("approval_policy")
+            .select("id")
+            .where("id", "=", approvalPolicyId)
+            .executeTakeFirst();
+          if (!policy) return Response.json({ error: "Invalid approval_policy_id" }, { status: 400 });
 
           const resourceId = crypto.randomUUID();
           const now = new Date().toISOString();
@@ -195,6 +204,7 @@ const server = serve({
               url,
               icon_url: null,
               owner_id: session.user.id,
+              approval_policy_id: approvalPolicyId,
               requires_approval: 0,
               approval_count: 0,
               created_at: now,
@@ -227,6 +237,7 @@ const server = serve({
                 name,
                 type,
                 tag,
+                approval_policy_id: approvalPolicyId,
                 global_visible: globalVisible,
               }),
               ip_address: req.headers.get("x-forwarded-for") ?? null,
@@ -242,6 +253,165 @@ const server = serve({
         console.error("Failed to process admin resources", error);
         return Response.json({ error: "Failed to process admin resources" }, { status: 500 });
       }
+    },
+    "/api/admin/policies": async (req) => {
+      let session;
+      try {
+        session = await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      if (req.method === "GET") {
+        const policies = await db
+          .selectFrom("approval_policy")
+          .leftJoin(
+            "approval_policy_group",
+            "approval_policy_group.approval_policy_id",
+            "approval_policy.id"
+          )
+          .select([
+            "approval_policy.id",
+            "approval_policy.name",
+            "approval_policy.auto_approve",
+            "approval_policy.created_at",
+            "approval_policy.updated_at",
+            db.fn.count("approval_policy_group.id").as("group_count"),
+          ])
+          .groupBy([
+            "approval_policy.id",
+            "approval_policy.name",
+            "approval_policy.auto_approve",
+            "approval_policy.created_at",
+            "approval_policy.updated_at",
+          ])
+          .orderBy("approval_policy.name", "asc")
+          .execute();
+
+        return Response.json(
+          policies.map((policy) => ({
+            ...policy,
+            group_count: Number(policy.group_count),
+          }))
+        );
+      }
+
+      if (req.method === "POST") {
+        let body: {
+          name?: string;
+          auto_approve?: number;
+          approval_group_ids?: string[];
+        };
+        try {
+          body = await req.json();
+        } catch {
+          return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+        }
+
+        const name = body.name?.trim() ?? "";
+        const autoApprove = body.auto_approve ? 1 : 0;
+        const approvalGroupIds = Array.from(
+          new Set((body.approval_group_ids ?? []).map((id) => id?.trim()).filter((id): id is string => !!id))
+        );
+
+        if (!name) {
+          return Response.json({ error: "name is required" }, { status: 400 });
+        }
+        if (autoApprove && approvalGroupIds.length > 0) {
+          return Response.json({ error: "Auto approve policy cannot have groups" }, { status: 400 });
+        }
+        if (!autoApprove && approvalGroupIds.length < 1) {
+          return Response.json({ error: "At least one group is required when auto approve is off" }, { status: 400 });
+        }
+
+        const duplicate = await db
+          .selectFrom("approval_policy")
+          .select("id")
+          .where("name", "=", name)
+          .executeTakeFirst();
+        if (duplicate) {
+          return Response.json({ error: "Policy with this name already exists" }, { status: 409 });
+        }
+
+        if (approvalGroupIds.length > 0) {
+          const validGroups = await db
+            .selectFrom("approval_group")
+            .select("id")
+            .where("id", "in", approvalGroupIds)
+            .execute();
+          if (validGroups.length !== approvalGroupIds.length) {
+            return Response.json({ error: "One or more groups do not exist" }, { status: 400 });
+          }
+        }
+
+        const policyId = crypto.randomUUID();
+        const now = new Date().toISOString();
+        await db.transaction().execute(async (trx) => {
+          await trx
+            .insertInto("approval_policy")
+            .values({
+              id: policyId,
+              name,
+              auto_approve: autoApprove,
+              created_at: now,
+              updated_at: now,
+            })
+            .execute();
+
+          for (const approvalGroupId of approvalGroupIds) {
+            await trx
+              .insertInto("approval_policy_group")
+              .values({
+                id: crypto.randomUUID(),
+                approval_policy_id: policyId,
+                approval_group_id: approvalGroupId,
+                created_at: now,
+              })
+              .execute();
+          }
+        });
+
+        await db
+          .insertInto("audit_log")
+          .values({
+            id: crypto.randomUUID(),
+            actor_id: session.user.id,
+            action: "approval_policy.created",
+            entity_type: "approval_policy",
+            entity_id: policyId,
+            metadata: JSON.stringify({
+              name,
+              auto_approve: autoApprove,
+              group_count: approvalGroupIds.length,
+            }),
+            ip_address: req.headers.get("x-forwarded-for") ?? null,
+            created_at: now,
+          })
+          .execute();
+
+        return Response.json({ id: policyId }, { status: 201 });
+      }
+
+      return Response.json({ error: "Method not allowed" }, { status: 405 });
+    },
+    "/api/admin/approval-policies": async (req) => {
+      try {
+        await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      if (req.method !== "GET") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+
+      const policies = await db
+        .selectFrom("approval_policy")
+        .select(["id", "name", "auto_approve", "created_at", "updated_at"])
+        .orderBy("name", "asc")
+        .execute();
+
+      return Response.json(policies);
     },
     "/api/admin/users": async (req) => {
       try {
@@ -618,6 +788,7 @@ const server = serve({
             "tag",
             "global_visible",
             "url",
+            "approval_policy_id",
           ])
           .where("id", "=", resourceId)
           .executeTakeFirst();
@@ -650,6 +821,7 @@ const server = serve({
           tag?: string | null;
           global_visible?: number;
           url?: string | null;
+          approval_policy_id?: string;
         };
         try {
           body = await req.json();
@@ -676,9 +848,10 @@ const server = serve({
         const tag = body.tag?.trim() ?? null;
         const globalVisible = body.global_visible == null ? 1 : body.global_visible ? 1 : 0;
         const requestUrl = body.url?.trim() ?? null;
+        const approvalPolicyId = body.approval_policy_id?.trim() ?? "";
 
-        if (!name || !type) {
-          return Response.json({ error: "name and type are required" }, { status: 400 });
+        if (!name || !type || !approvalPolicyId) {
+          return Response.json({ error: "name, type and approval_policy_id are required" }, { status: 400 });
         }
 
         if (!["software", "secure_note"].includes(type)) {
@@ -693,6 +866,13 @@ const server = serve({
           }
         }
 
+        const policy = await db
+          .selectFrom("approval_policy")
+          .select("id")
+          .where("id", "=", approvalPolicyId)
+          .executeTakeFirst();
+        if (!policy) return Response.json({ error: "Invalid approval_policy_id" }, { status: 400 });
+
         const now = new Date().toISOString();
 
         await db
@@ -704,6 +884,7 @@ const server = serve({
             tag,
             global_visible: globalVisible,
             url: requestUrl,
+            approval_policy_id: approvalPolicyId,
             requires_approval: 0,
             approval_count: 0,
             updated_at: now,
@@ -723,6 +904,7 @@ const server = serve({
               name,
               type,
               tag,
+              approval_policy_id: approvalPolicyId,
               global_visible: globalVisible,
             }),
             ip_address: req.headers.get("x-forwarded-for") ?? null,
@@ -968,6 +1150,216 @@ const server = serve({
         .execute();
 
       return Response.json({ ok: true, id: secretId, archived_at: now });
+    },
+    "/api/admin/policies/detail": async (req) => {
+      try {
+        await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      if (req.method !== "GET") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+
+      const url = new URL(req.url);
+      const policyId = url.searchParams.get("id")?.trim() ?? "";
+      if (!policyId) return Response.json({ error: "id is required" }, { status: 400 });
+
+      const policy = await db
+        .selectFrom("approval_policy")
+        .select(["id", "name", "auto_approve", "created_at", "updated_at"])
+        .where("id", "=", policyId)
+        .executeTakeFirst();
+      if (!policy) return Response.json({ error: "Policy not found" }, { status: 404 });
+
+      const groups = await db
+        .selectFrom("approval_policy_group")
+        .innerJoin("approval_group", "approval_group.id", "approval_policy_group.approval_group_id")
+        .select(["approval_group.id", "approval_group.name"])
+        .where("approval_policy_group.approval_policy_id", "=", policyId)
+        .orderBy("approval_group.name", "asc")
+        .execute();
+
+      return Response.json({
+        ...policy,
+        groups,
+      });
+    },
+    "/api/admin/policies/update": async (req) => {
+      let session;
+      try {
+        session = await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      if (req.method !== "PATCH") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+
+      let body: {
+        id?: string;
+        name?: string;
+        auto_approve?: number;
+        approval_group_ids?: string[];
+      };
+      try {
+        body = await req.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+      }
+
+      const policyId = body.id?.trim() ?? "";
+      const name = body.name?.trim() ?? "";
+      const autoApprove = body.auto_approve ? 1 : 0;
+      const approvalGroupIds = Array.from(
+        new Set((body.approval_group_ids ?? []).map((gid) => gid?.trim()).filter((gid): gid is string => !!gid))
+      );
+
+      if (!policyId || !name) return Response.json({ error: "id and name are required" }, { status: 400 });
+      if (autoApprove && approvalGroupIds.length > 0) {
+        return Response.json({ error: "Auto approve policy cannot have groups" }, { status: 400 });
+      }
+      if (!autoApprove && approvalGroupIds.length < 1) {
+        return Response.json({ error: "At least one group is required when auto approve is off" }, { status: 400 });
+      }
+
+      const existing = await db
+        .selectFrom("approval_policy")
+        .select("id")
+        .where("id", "=", policyId)
+        .executeTakeFirst();
+      if (!existing) return Response.json({ error: "Policy not found" }, { status: 404 });
+
+      const duplicate = await db
+        .selectFrom("approval_policy")
+        .select("id")
+        .where("name", "=", name)
+        .where("id", "!=", policyId)
+        .executeTakeFirst();
+      if (duplicate) return Response.json({ error: "Policy with this name already exists" }, { status: 409 });
+
+      if (approvalGroupIds.length > 0) {
+        const validGroups = await db
+          .selectFrom("approval_group")
+          .select("id")
+          .where("id", "in", approvalGroupIds)
+          .execute();
+        if (validGroups.length !== approvalGroupIds.length) {
+          return Response.json({ error: "One or more groups do not exist" }, { status: 400 });
+        }
+      }
+
+      const now = new Date().toISOString();
+      await db.transaction().execute(async (trx) => {
+        await trx
+          .updateTable("approval_policy")
+          .set({
+            name,
+            auto_approve: autoApprove,
+            updated_at: now,
+          })
+          .where("id", "=", policyId)
+          .execute();
+
+        await trx
+          .deleteFrom("approval_policy_group")
+          .where("approval_policy_id", "=", policyId)
+          .execute();
+
+        for (const approvalGroupId of approvalGroupIds) {
+          await trx
+            .insertInto("approval_policy_group")
+            .values({
+              id: crypto.randomUUID(),
+              approval_policy_id: policyId,
+              approval_group_id: approvalGroupId,
+              created_at: now,
+            })
+            .execute();
+        }
+      });
+
+      await db
+        .insertInto("audit_log")
+        .values({
+          id: crypto.randomUUID(),
+          actor_id: session.user.id,
+          action: "approval_policy.updated",
+          entity_type: "approval_policy",
+          entity_id: policyId,
+          metadata: JSON.stringify({
+            name,
+            auto_approve: autoApprove,
+            group_count: approvalGroupIds.length,
+          }),
+          ip_address: req.headers.get("x-forwarded-for") ?? null,
+          created_at: now,
+        })
+        .execute();
+
+      return Response.json({ id: policyId });
+    },
+    "/api/admin/policies/delete": async (req) => {
+      let session;
+      try {
+        session = await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      if (req.method !== "DELETE") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+
+      let body: { id?: string };
+      try {
+        body = await req.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+      }
+
+      const policyId = body.id?.trim() ?? "";
+      if (!policyId) return Response.json({ error: "id is required" }, { status: 400 });
+
+      const existing = await db
+        .selectFrom("approval_policy")
+        .select(["id", "name"])
+        .where("id", "=", policyId)
+        .executeTakeFirst();
+      if (!existing) return Response.json({ error: "Policy not found" }, { status: 404 });
+
+      const inUse = await db
+        .selectFrom("resource")
+        .select("id")
+        .where("approval_policy_id", "=", policyId)
+        .limit(1)
+        .executeTakeFirst();
+      if (inUse) {
+        return Response.json({ error: "Policy is assigned to one or more resources" }, { status: 409 });
+      }
+
+      await db.deleteFrom("approval_policy").where("id", "=", policyId).execute();
+
+      const now = new Date().toISOString();
+      await db
+        .insertInto("audit_log")
+        .values({
+          id: crypto.randomUUID(),
+          actor_id: session.user.id,
+          action: "approval_policy.deleted",
+          entity_type: "approval_policy",
+          entity_id: policyId,
+          metadata: JSON.stringify({
+            name: existing.name,
+          }),
+          ip_address: req.headers.get("x-forwarded-for") ?? null,
+          created_at: now,
+        })
+        .execute();
+
+      return Response.json({ id: policyId });
     },
     "/api/admin/approval-groups/detail": async (req) => {
       let session;

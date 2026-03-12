@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppLayout } from "../components/AppLayout";
 import { PageHeader } from "../components/PageHeader";
@@ -23,12 +23,31 @@ export function AdminResourceNewPage() {
   const [tag, setTag] = useState("");
   const [globalVisible, setGlobalVisible] = useState(true);
   const [url, setUrl] = useState("");
+  const [approvalPolicies, setApprovalPolicies] = useState<Array<{ id: string; name: string }>>([]);
+  const [approvalPolicyId, setApprovalPolicyId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  useEffect(() => {
+    void fetch("/api/admin/policies")
+      .then(async (res) => {
+        if (!res.ok) return [];
+        const data = await parseJsonResponse<Array<{ id: string; name: string }>>(res);
+        return data ?? [];
+      })
+      .then((policies) => {
+        setApprovalPolicies(policies);
+        if (policies.length > 0) setApprovalPolicyId((prev) => prev || policies[0]!.id);
+      });
+  }, []);
 
   const submit = async () => {
     if (!name.trim()) {
       setMessage({ type: "error", text: "Resource name is required." });
+      return;
+    }
+    if (!approvalPolicyId) {
+      setMessage({ type: "error", text: "Policy is required." });
       return;
     }
 
@@ -45,6 +64,7 @@ export function AdminResourceNewPage() {
         tag: tag || null,
         global_visible: globalVisible ? 1 : 0,
         url: url || null,
+        approval_policy_id: approvalPolicyId,
       }),
     });
 
@@ -70,7 +90,8 @@ export function AdminResourceNewPage() {
 
       <Pane className="mt-5 p-5">
         <ResourceFormFields
-          value={{ name, type, url, tag, description, globalVisible }}
+          value={{ name, type, url, tag, description, globalVisible, approvalPolicyId }}
+          approvalPolicies={approvalPolicies}
           onChange={(patch) => {
             if (patch.name !== undefined) setName(patch.name);
             if (patch.type !== undefined) setType(patch.type);
@@ -78,6 +99,7 @@ export function AdminResourceNewPage() {
             if (patch.tag !== undefined) setTag(patch.tag);
             if (patch.description !== undefined) setDescription(patch.description);
             if (patch.globalVisible !== undefined) setGlobalVisible(patch.globalVisible);
+            if (patch.approvalPolicyId !== undefined) setApprovalPolicyId(patch.approvalPolicyId);
           }}
         />
 

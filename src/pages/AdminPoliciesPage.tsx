@@ -1,16 +1,15 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Plus } from "lucide-react";
 import { AppLayout } from "../components/AppLayout";
 import { PageHeader } from "../components/PageHeader";
 import { Pane } from "../components/Pane";
-import { Plus } from "lucide-react";
 
-type ApprovalGroup = {
+type PolicyItem = {
   id: string;
   name: string;
-  description: string | null;
-  member_count: number;
-  created_at: string;
+  auto_approve: number;
+  group_count: number;
   updated_at: string;
 };
 
@@ -24,107 +23,107 @@ async function parseJsonResponse<T>(res: Response): Promise<T | null> {
   }
 }
 
-export function AdminDirectoryGroupsPage() {
+export function AdminPoliciesPage() {
   const navigate = useNavigate();
-  const [groups, setGroups] = useState<ApprovalGroup[]>([]);
+  const [items, setItems] = useState<PolicyItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const loadGroups = async () => {
+  const loadItems = async () => {
     setLoading(true);
-    const res = await fetch("/api/admin/approval-groups");
+    const res = await fetch("/api/admin/policies");
     if (!res.ok) {
-      setGroups([]);
+      setItems([]);
       setLoading(false);
       return;
     }
-    const data = await parseJsonResponse<ApprovalGroup[]>(res);
-    setGroups(data ?? []);
+
+    const data = await parseJsonResponse<PolicyItem[]>(res);
+    setItems(data ?? []);
     setLoading(false);
   };
 
   useEffect(() => {
-    void loadGroups();
+    void loadItems();
   }, []);
 
-  const removeGroup = async (groupId: string) => {
-    const group = groups.find((item) => item.id === groupId);
-    const confirmed = window.confirm(
-      `Delete group "${group?.name ?? "this group"}"? This will remove all memberships.`
-    );
+  const removePolicy = async (policyId: string) => {
+    const policy = items.find((item) => item.id === policyId);
+    const confirmed = window.confirm(`Delete policy \"${policy?.name ?? "this policy"}\"?`);
     if (!confirmed) return;
 
-    setDeletingId(groupId);
-    const res = await fetch("/api/admin/approval-groups/delete", {
+    setDeletingId(policyId);
+    const res = await fetch("/api/admin/policies/delete", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: groupId }),
+      body: JSON.stringify({ id: policyId }),
     });
     setDeletingId(null);
-    if (!res.ok) return;
-    await loadGroups();
+
+    if (!res.ok) {
+      const err = await parseJsonResponse<{ error?: string }>(res);
+      window.alert(err?.error ?? "Failed to delete policy.");
+      return;
+    }
+
+    await loadItems();
   };
 
   return (
     <AppLayout>
-      <PageHeader title="Groups" />
+      <PageHeader title="Policies" />
 
       <div className="mt-5 flex justify-end">
         <button
           type="button"
-          onClick={() => navigate("/admin/groups/new")}
+          onClick={() => navigate("/admin/policies/new")}
           className="inline-flex items-center gap-2 rounded-xl bg-[#232733] px-4 py-2 text-[14px] font-medium text-white hover:bg-[#1a1d27]"
         >
           <Plus size={14} />
-          New Group
+          New Policy
         </button>
       </div>
 
       <Pane className="mt-4 overflow-hidden">
         {loading ? (
-          <p className="py-14 text-center text-[14px] text-[#8990a3]">Loading groups...</p>
-        ) : groups.length === 0 ? (
-          <p className="py-14 text-center text-[14px] text-[#8990a3]">No groups yet.</p>
+          <p className="py-14 text-center text-[14px] text-[#8990a3]">Loading policies...</p>
+        ) : items.length === 0 ? (
+          <p className="py-14 text-center text-[14px] text-[#8990a3]">No policies yet.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-left">
               <thead className="bg-[#f8f9fc]">
                 <tr className="border-b border-[#e7eaf2] text-[12px] font-semibold uppercase tracking-[0.04em] text-[#7b8195]">
                   <th className="px-4 py-3">Name</th>
-                  <th className="px-4 py-3">Members</th>
+                  <th className="px-4 py-3">Mode</th>
+                  <th className="px-4 py-3">Groups</th>
                   <th className="px-4 py-3">Updated</th>
                   <th className="px-4 py-3">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {groups.map((group) => (
-                  <tr key={group.id} className="border-b border-[#eef1f6] text-[13px] text-[#3f455c]">
-                    <td className="px-4 py-3">
-                      <p className="font-semibold text-[#232733]">{group.name}</p>
-                      {group.description ? (
-                        <p className="mt-0.5 max-w-[420px] truncate text-[12px] text-[#8990a3]">
-                          {group.description}
-                        </p>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-3">{group.member_count}</td>
-                    <td className="px-4 py-3">{new Date(group.updated_at).toLocaleDateString()}</td>
+                {items.map((policy) => (
+                  <tr key={policy.id} className="border-b border-[#eef1f6] text-[13px] text-[#3f455c]">
+                    <td className="px-4 py-3 font-semibold text-[#232733]">{policy.name}</td>
+                    <td className="px-4 py-3">{policy.auto_approve ? "Auto approve" : "Group approval"}</td>
+                    <td className="px-4 py-3">{policy.group_count}</td>
+                    <td className="px-4 py-3">{new Date(policy.updated_at).toLocaleDateString()}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => navigate(`/admin/groups/${group.id}/edit`)}
+                          onClick={() => navigate(`/admin/policies/${policy.id}/edit`)}
                           className="rounded-lg border border-[#d6dbe8] px-2.5 py-1 text-[12px] font-medium text-[#4f566f] hover:bg-[#f6f7fb]"
                         >
                           Edit
                         </button>
                         <button
                           type="button"
-                          onClick={() => void removeGroup(group.id)}
-                          disabled={deletingId === group.id}
+                          onClick={() => void removePolicy(policy.id)}
+                          disabled={deletingId === policy.id}
                           className="rounded-lg border border-red-200 px-2.5 py-1 text-[12px] font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {deletingId === group.id ? "Deleting..." : "Delete"}
+                          {deletingId === policy.id ? "Deleting..." : "Delete"}
                         </button>
                       </div>
                     </td>

@@ -7,6 +7,8 @@ import { AdminResourcesPage } from "./pages/AdminResourcesPage";
 import { AdminDirectoryUsersPage } from "./pages/AdminDirectoryUsersPage";
 import { AdminDirectoryGroupsPage } from "./pages/AdminDirectoryGroupsPage";
 import { AdminApprovalGroupFormPage } from "./pages/AdminApprovalGroupFormPage";
+import { AdminPoliciesPage } from "./pages/AdminPoliciesPage";
+import { AdminPolicyFormPage } from "./pages/AdminPolicyFormPage";
 import { AuthProvider, useAuth } from "./auth-context";
 import { LoginPage } from "./pages/LoginPage";
 import { AuditLogPage } from "./pages/AuditLogPage";
@@ -95,7 +97,7 @@ function AppRoutes() {
         }
       />
       <Route
-        path="/admin/approval-groups"
+        path="/admin/groups"
         element={
           <RequireAuth>
             <AdminDirectoryGroupsPage />
@@ -103,13 +105,52 @@ function AppRoutes() {
         }
       />
       <Route
-        path="/admin/approval-groups/new"
+        path="/admin/groups/new"
         element={
           <RequireAuth>
             <AdminApprovalGroupFormPage />
           </RequireAuth>
         }
       />
+      <Route
+        path="/admin/groups/:id/edit"
+        element={
+          <RequireAuth>
+            <AdminApprovalGroupFormPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/admin/policies"
+        element={
+          <RequireAuth>
+            <AdminPoliciesPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/admin/policies/new"
+        element={
+          <RequireAuth>
+            <AdminPolicyFormPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/admin/policies/:id/edit"
+        element={
+          <RequireAuth>
+            <AdminPolicyFormPage />
+          </RequireAuth>
+        }
+      />
+      <Route path="/admin/directory/users" element={<Navigate to="/admin/users" replace />} />
+      <Route
+        path="/admin/directory/groups"
+        element={<Navigate to="/admin/groups" replace />}
+      />
+      <Route path="/admin/approval-groups" element={<Navigate to="/admin/groups" replace />} />
+      <Route path="/admin/approval-groups/new" element={<Navigate to="/admin/groups/new" replace />} />
       <Route
         path="/admin/approval-groups/:id/edit"
         element={
@@ -118,12 +159,6 @@ function AppRoutes() {
           </RequireAuth>
         }
       />
-      <Route path="/admin/directory/users" element={<Navigate to="/admin/users" replace />} />
-      <Route
-        path="/admin/directory/groups"
-        element={<Navigate to="/admin/approval-groups" replace />}
-      />
-      <Route path="/admin/groups" element={<Navigate to="/admin/approval-groups" replace />} />
       <Route
         path="/purchase-requests"
         element={

@@ -23,6 +23,7 @@ type ResourcePayload = {
   tag: string | null;
   global_visible: number;
   url: string | null;
+  approval_policy_id: string | null;
 };
 
 type SecretsPayload = Array<{
@@ -119,7 +120,9 @@ export function AdminResourceEditPage() {
     tag: "",
     globalVisible: true,
     url: "",
+    approvalPolicyId: "",
   });
+  const [approvalPolicies, setApprovalPolicies] = useState<Array<{ id: string; name: string }>>([]);
   const [secrets, setSecrets] = useState<SecretDraft[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [editingSecrets, setEditingSecrets] = useState(false);
@@ -167,6 +170,7 @@ export function AdminResourceEditPage() {
         tag: resourceData.tag ?? "",
         globalVisible: !!resourceData.global_visible,
         url: resourceData.url ?? "",
+        approvalPolicyId: resourceData.approval_policy_id ?? "",
       });
       const loadedSecrets = (Array.isArray(secretsData) ? secretsData : []).map((secret) => ({
           id: secret.id,
@@ -181,6 +185,24 @@ export function AdminResourceEditPage() {
 
     void load();
   }, [id]);
+
+  useEffect(() => {
+    void fetch("/api/admin/policies")
+      .then(async (res) => {
+        if (!res.ok) return [];
+        const data = await parseJsonResponse<Array<{ id: string; name: string }>>(res);
+        return data ?? [];
+      })
+      .then((policies) => {
+        setApprovalPolicies(policies);
+        if (policies.length > 0) {
+          setForm((prev) => ({
+            ...prev,
+            approvalPolicyId: prev.approvalPolicyId || policies[0]!.id,
+          }));
+        }
+      });
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => setTotpNow(Math.floor(Date.now() / 1000)), 1000);
@@ -374,6 +396,10 @@ export function AdminResourceEditPage() {
       setMessage({ type: "error", text: "Resource name is required." });
       return;
     }
+    if (!form.approvalPolicyId) {
+      setMessage({ type: "error", text: "Policy is required." });
+      return;
+    }
 
     setSubmitting(true);
     setMessage(null);
@@ -389,6 +415,7 @@ export function AdminResourceEditPage() {
         tag: form.tag || null,
         global_visible: form.globalVisible ? 1 : 0,
         url: form.url || null,
+        approval_policy_id: form.approvalPolicyId,
       }),
     });
 
@@ -421,6 +448,7 @@ export function AdminResourceEditPage() {
               <ResourceFormFields
                 value={form}
                 onChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
+                approvalPolicies={approvalPolicies}
               />
 
               {message ? (

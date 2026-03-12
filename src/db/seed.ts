@@ -560,8 +560,90 @@ const resources: ResourceSeed[] = [
 ];
 
 // Clear existing seed data
+await db.deleteFrom("approval_policy_group").where("id", "like", "seed-approval-policy-group-%").execute();
+await db.deleteFrom("approval_policy").where("id", "like", "seed-approval-policy-%").execute();
+await db
+  .deleteFrom("approval_group_member")
+  .where("approval_group_id", "like", "seed-approval-group-%")
+  .execute();
+await db.deleteFrom("approval_group").where("id", "like", "seed-approval-group-%").execute();
 await db.deleteFrom("resource_role").where("id", "like", "seed-%").execute();
 await db.deleteFrom("resource").where("id", "like", "seed-%").execute();
+
+const approvalGroups = ["HR", "Finance", "CTO", "IT"] as const;
+const approvalGroupIds = Object.fromEntries(
+  approvalGroups.map((groupName) => [
+    groupName,
+    `seed-approval-group-${groupName.toLowerCase().replace(/\s+/g, "-")}`,
+  ])
+) as Record<(typeof approvalGroups)[number], string>;
+
+for (const groupName of approvalGroups) {
+  const groupId = approvalGroupIds[groupName];
+  await db
+    .insertInto("approval_group")
+    .values({
+      id: groupId,
+      name: groupName,
+      description: null,
+      created_by: ownerId,
+      created_at: now,
+      updated_at: now,
+    })
+    .execute();
+
+  await db
+    .insertInto("approval_group_member")
+    .values({
+      id: `seed-approval-group-member-${groupName.toLowerCase().replace(/\s+/g, "-")}-${ownerId}`,
+      approval_group_id: groupId,
+      user_id: ownerId,
+      created_at: now,
+    })
+    .execute();
+}
+
+const approvalPolicies = [
+  { name: "Auto-approval", auto_approve: 1, groups: [] as string[] },
+  { name: "Standard", auto_approve: 0, groups: [approvalGroupIds.IT, approvalGroupIds.HR] },
+  { name: "Administrative", auto_approve: 0, groups: [approvalGroupIds.IT, approvalGroupIds.CTO] },
+  { name: "Critical", auto_approve: 0, groups: [approvalGroupIds.CTO] },
+] as const;
+
+const standardPolicyId = "seed-approval-policy-standard";
+
+for (const policy of approvalPolicies) {
+  const policyId = `seed-approval-policy-${policy.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  if (policy.auto_approve && policy.groups.length > 0) {
+    throw new Error(`Invalid seed policy "${policy.name}": auto_approve cannot have groups.`);
+  }
+  if (Number(policy.auto_approve) === 0 && policy.groups.length < 1) {
+    throw new Error(`Invalid seed policy "${policy.name}": non-auto policy must have groups.`);
+  }
+
+  await db
+    .insertInto("approval_policy")
+    .values({
+      id: policyId,
+      name: policy.name,
+      auto_approve: policy.auto_approve,
+      created_at: now,
+      updated_at: now,
+    })
+    .execute();
+
+  for (const groupId of policy.groups) {
+    await db
+      .insertInto("approval_policy_group")
+      .values({
+        id: `seed-approval-policy-group-${policyId}-${groupId}`,
+        approval_policy_id: policyId,
+        approval_group_id: groupId,
+        created_at: now,
+      })
+      .execute();
+  }
+}
 
 for (const r of resources) {
   const resourceId = rid();
@@ -578,6 +660,7 @@ for (const r of resources) {
       url: r.url ?? null,
       icon_url: null,
       owner_id: ownerId,
+      approval_policy_id: standardPolicyId,
       requires_approval: r.requires_approval,
       approval_count: r.approval_count,
       created_at: now,
@@ -616,39 +699,6 @@ for (const r of resources) {
 }
 
 console.log(`Seeded ${resources.length} resources with roles.`);
-
-const approvalGroups = ["HR", "Finance", "CTO", "IT"] as const;
-
-await db
-  .deleteFrom("approval_group_member")
-  .where("approval_group_id", "like", "seed-approval-group-%")
-  .execute();
-await db.deleteFrom("approval_group").where("id", "like", "seed-approval-group-%").execute();
-
-for (const groupName of approvalGroups) {
-  const groupId = `seed-approval-group-${groupName.toLowerCase().replace(/\s+/g, "-")}`;
-  await db
-    .insertInto("approval_group")
-    .values({
-      id: groupId,
-      name: groupName,
-      description: null,
-      created_by: ownerId,
-      created_at: now,
-      updated_at: now,
-    })
-    .execute();
-
-  await db
-    .insertInto("approval_group_member")
-    .values({
-      id: `seed-approval-group-member-${groupName.toLowerCase().replace(/\s+/g, "-")}-${ownerId}`,
-      approval_group_id: groupId,
-      user_id: ownerId,
-      created_at: now,
-    })
-    .execute();
-}
-
 console.log(`Seeded ${approvalGroups.length} approval groups.`);
+console.log(`Seeded ${approvalPolicies.length} approval policies.`);
 await db.destroy();

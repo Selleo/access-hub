@@ -199,7 +199,7 @@ export function ResourcesPage() {
 
   return (
     <AppLayout>
-      <PageHeader title="Resources" />
+      <PageHeader title="Catalog" />
 
       <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         {/* Search */}

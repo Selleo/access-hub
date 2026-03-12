@@ -94,14 +94,14 @@ export function AdminApprovalGroupFormPage() {
       setLoading(true);
       const res = await fetch(`/api/admin/approval-groups/detail?id=${encodeURIComponent(id)}`);
       if (!res.ok) {
-        setMessage({ type: "error", text: "Failed to load approval group." });
+        setMessage({ type: "error", text: "Failed to load group." });
         setLoading(false);
         return;
       }
 
       const data = await parseJsonResponse<ApprovalGroupDetail>(res);
       if (!data) {
-        setMessage({ type: "error", text: "Failed to parse approval group." });
+        setMessage({ type: "error", text: "Failed to parse group." });
         setLoading(false);
         return;
       }
@@ -126,7 +126,7 @@ export function AdminApprovalGroupFormPage() {
   const submit = async () => {
     const cleanName = name.trim();
     if (!cleanName) {
-      setMessage({ type: "error", text: "Approval group name is required." });
+      setMessage({ type: "error", text: "Group name is required." });
       return;
     }
 
@@ -148,22 +148,22 @@ export function AdminApprovalGroupFormPage() {
       const err = await parseJsonResponse<{ error?: string }>(res);
       setMessage({
         type: "error",
-        text: err?.error ?? `Failed to ${isEdit ? "update" : "create"} approval group.`,
+        text: err?.error ?? `Failed to ${isEdit ? "update" : "create"} group.`,
       });
       setSaving(false);
       return;
     }
 
-    navigate("/admin/approval-groups");
+    navigate("/admin/groups");
   };
 
   return (
     <AppLayout>
-      <PageHeader title={isEdit ? "Edit Approval Group" : "New Approval Group"} />
+      <PageHeader title={isEdit ? "Edit Group" : "New Group"} />
 
       <Pane className="mt-5 p-5">
         {loading ? (
-          <p className="py-8 text-center text-[14px] text-[#8990a3]">Loading approval group...</p>
+          <p className="py-8 text-center text-[14px] text-[#8990a3]">Loading group...</p>
         ) : (
           <div className="space-y-3">
             <div>
@@ -269,7 +269,7 @@ export function AdminApprovalGroupFormPage() {
         <div className="mt-4 flex justify-end gap-3">
           <button
             type="button"
-            onClick={() => navigate("/admin/approval-groups")}
+            onClick={() => navigate("/admin/groups")}
             className="rounded-xl px-4 py-2 text-[14px] font-medium text-[#6c7285] hover:bg-[#f1f2f6]"
           >
             Cancel
@@ -280,7 +280,7 @@ export function AdminApprovalGroupFormPage() {
             disabled={saving}
             className="rounded-xl bg-[#232733] px-4 py-2 text-[14px] font-medium text-white hover:bg-[#1a1d27] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {saving ? "Saving..." : isEdit ? "Save Changes" : "Create Approval Group"}
+            {saving ? "Saving..." : isEdit ? "Save Changes" : "Create Group"}
           </button>
         </div>
       </Pane>

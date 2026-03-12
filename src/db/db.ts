@@ -14,6 +14,7 @@ import * as Mig008 from "./migrations/008_resource_tag_and_visibility.ts";
 import * as Mig009 from "./migrations/009_create_approval_groups.ts";
 import * as Mig010 from "./migrations/010_resource_role_is_admin.ts";
 import * as Mig011 from "./migrations/011_secret_archived_at.ts";
+import * as Mig012 from "./migrations/012_create_approval_policies.ts";
 
 fs.mkdirSync("data", { recursive: true });
 
@@ -40,6 +41,7 @@ export async function migrateToLatest() {
           "009": Mig009,
           "010": Mig010,
           "011": Mig011,
+          "012": Mig012,
         };
       },
     },

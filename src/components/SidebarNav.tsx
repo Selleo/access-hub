@@ -1,13 +1,14 @@
 import type { ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
+  Activity,
   Folder,
   FolderCog,
   KeyRound,
   ScrollText,
   ShieldCheck,
-  UserCheck,
   SquareUserRound,
+  UserCheck,
 } from "lucide-react";
 
 function NavItem({
@@ -55,7 +56,7 @@ export function SidebarNav() {
         <NavItem
           active={path === "/resources" || path.startsWith("/resources/")}
           icon={<Folder size={16} />}
-          label="Resources"
+          label="Catalog"
           onClick={() => navigate("/resources")}
         />
       </div>
@@ -75,7 +76,7 @@ export function SidebarNav() {
         <NavItem
           active={path === "/admin/resources" || path.startsWith("/admin/resources/")}
           icon={<FolderCog size={16} />}
-          label="Manage Resources"
+          label="Resources"
           onClick={() => navigate("/admin/resources")}
         />
         <NavItem
@@ -86,17 +87,24 @@ export function SidebarNav() {
         />
         <NavItem
           active={
-            path === "/admin/approval-groups" ||
             path === "/admin/groups" ||
+            path === "/admin/approval-groups" ||
+            path.startsWith("/admin/groups/") ||
             path === "/admin/directory/groups"
           }
-          icon={<UserCheck size={15} />}
-          label="Approval Groups"
-          onClick={() => navigate("/admin/approval-groups")}
+          icon={<UserCheck size={16} />}
+          label="Groups"
+          onClick={() => navigate("/admin/groups")}
+        />
+        <NavItem
+          active={path === "/admin/policies" || path.startsWith("/admin/policies/")}
+          icon={<ScrollText size={16} />}
+          label="Policies"
+          onClick={() => navigate("/admin/policies")}
         />
         <NavItem
           active={path === "/audit-log"}
-          icon={<ScrollText size={16} />}
+          icon={<Activity size={16} />}
           label="Audit Logs"
           onClick={() => navigate("/audit-log")}
         />

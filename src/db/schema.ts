@@ -8,6 +8,7 @@ export interface ResourceTable {
   url: string | null;
   icon_url: string | null;
   owner_id: string;
+  approval_policy_id: string | null;
   requires_approval: number;
   approval_count: number;
   created_at: string;
@@ -113,6 +114,21 @@ export interface ApprovalGroupMemberTable {
   created_at: string;
 }
 
+export interface ApprovalPolicyTable {
+  id: string;
+  name: string;
+  auto_approve: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApprovalPolicyGroupTable {
+  id: string;
+  approval_policy_id: string;
+  approval_group_id: string;
+  created_at: string;
+}
+
 export interface UserTable {
   id: string;
   name: string;
@@ -135,4 +151,6 @@ export interface Database {
   secret: SecretTable;
   approval_group: ApprovalGroupTable;
   approval_group_member: ApprovalGroupMemberTable;
+  approval_policy: ApprovalPolicyTable;
+  approval_policy_group: ApprovalPolicyGroupTable;
 }

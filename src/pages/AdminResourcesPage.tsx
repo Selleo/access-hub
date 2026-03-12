@@ -63,7 +63,7 @@ export function AdminResourcesPage() {
 
   return (
     <AppLayout>
-      <PageHeader title="Manage Resources" />
+      <PageHeader title="Resources" />
 
       <div className="mt-5 flex items-center justify-end gap-3">
         <div className="inline-flex items-center rounded-xl border border-[#dfe5f0] bg-white p-1">
