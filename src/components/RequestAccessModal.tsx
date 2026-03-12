@@ -3,8 +3,6 @@ import {
   X,
   ShieldCheck,
   ShieldOff,
-  Clock,
-  Infinity,
   Loader2,
   CheckCircle2,
   AlertCircle,
@@ -13,8 +11,7 @@ import {
 type Role = {
   id: string;
   name: string;
-  description: string | null;
-  requires_approval: number | null;
+  is_admin: number;
 };
 
 type Resource = {
@@ -43,11 +40,11 @@ async function parseJsonResponse<T>(res: Response): Promise<T | null> {
 }
 
 const LEASE_OPTIONS = [
-  { value: 0, label: "Forever", icon: Infinity },
-  { value: 1, label: "1 day", icon: Clock },
-  { value: 7, label: "7 days", icon: Clock },
-  { value: 30, label: "30 days", icon: Clock },
-  { value: 90, label: "90 days", icon: Clock },
+  { value: 0, label: "Forever" },
+  { value: 1, label: "1 day" },
+  { value: 7, label: "7 days" },
+  { value: 30, label: "30 days" },
+  { value: 90, label: "90 days" },
 ];
 
 export function RequestAccessModal({ resource, open, onClose, onSuccess }: Props) {
@@ -55,7 +52,7 @@ export function RequestAccessModal({ resource, open, onClose, onSuccess }: Props
   const [loadingRoles, setLoadingRoles] = useState(true);
   const [rolesError, setRolesError] = useState<string | null>(null);
   const [selectedRoleId, setSelectedRoleId] = useState("");
-  const [leaseDays, setLeaseDays] = useState(0);
+  const [leaseDays, setLeaseDays] = useState(7);
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -65,11 +62,11 @@ export function RequestAccessModal({ resource, open, onClose, onSuccess }: Props
     setLoadingRoles(true);
     setRolesError(null);
     setSelectedRoleId("");
-    setLeaseDays(0);
+    setLeaseDays(7);
     setReason("");
     setResult(null);
 
-    fetch(`/api/resources/${resource.id}/roles`)
+    fetch(`/api/resources/roles?resource_id=${encodeURIComponent(resource.id)}`)
       .then(async (r) => {
         if (!r.ok) {
           const err = await parseJsonResponse<{ error?: string }>(r);
@@ -90,10 +87,7 @@ export function RequestAccessModal({ resource, open, onClose, onSuccess }: Props
 
   const selectedRole = roles.find((r) => r.id === selectedRoleId);
 
-  const needsApproval =
-    selectedRole?.requires_approval != null
-      ? !!selectedRole.requires_approval
-      : !!resource.requires_approval;
+  const needsApproval = !!resource.requires_approval;
 
   const handleSubmit = async () => {
     if (!selectedRoleId) return;
@@ -182,10 +176,6 @@ export function RequestAccessModal({ resource, open, onClose, onSuccess }: Props
             ) : (
               <div className="space-y-2">
                 {roles.map((role) => {
-                  const roleApproval =
-                    role.requires_approval != null
-                      ? !!role.requires_approval
-                      : !!resource.requires_approval;
                   return (
                     <button
                       key={role.id}
@@ -201,11 +191,8 @@ export function RequestAccessModal({ resource, open, onClose, onSuccess }: Props
                         <span className="text-[13px] font-medium text-[#232733]">
                           {role.name}
                         </span>
-                        {role.description ? (
-                          <p className="mt-0.5 text-[11px] text-[#8990a3]">{role.description}</p>
-                        ) : null}
                       </div>
-                      {roleApproval ? (
+                      {role.is_admin ? (
                         <ShieldCheck size={13} className="text-amber-500" />
                       ) : (
                         <ShieldOff size={13} className="text-emerald-500" />
@@ -220,21 +207,20 @@ export function RequestAccessModal({ resource, open, onClose, onSuccess }: Props
           {/* Lease duration */}
           <div>
             <label className="mb-2 block text-[13px] font-medium text-[#4f566f]">
-              Access duration
+              Access Duration
             </label>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-5 gap-1.5">
               {LEASE_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
                   type="button"
                   onClick={() => setLeaseDays(opt.value)}
-                  className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[13px] font-medium transition-colors ${
+                  className={`rounded-lg border px-2 py-1.5 text-[12px] font-medium whitespace-nowrap transition-colors ${
                     leaseDays === opt.value
                       ? "border-[#232733] bg-[#232733] text-white"
                       : "border-[#e7eaf2] text-[#6c7285] hover:border-[#cdd2de]"
                   }`}
                 >
-                  <opt.icon size={13} />
                   {opt.label}
                 </button>
               ))}

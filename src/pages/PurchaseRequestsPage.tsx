@@ -129,10 +129,10 @@ export function PurchaseRequestsPage() {
   const updateStatus = async (id: string, status: "approved" | "rejected" | "purchased") => {
     setActionLoadingId(id);
 
-    const res = await fetch(`/api/purchase-requests/${id}`, {
+    const res = await fetch("/api/purchase-requests/review", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ id, status }),
     });
 
     if (!res.ok) {

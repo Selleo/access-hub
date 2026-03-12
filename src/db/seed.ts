@@ -25,17 +25,60 @@ const ownerId = owner.id;
 type ResourceSeed = {
   name: string;
   description: string;
-  type: "software" | "secure_note" | "infrastructure";
+  type: "software" | "secure_note";
+  tag?: string;
+  global_visible?: number;
   url?: string;
   requires_approval: number;
   approval_count: number;
-  roles: { name: string; description?: string; requires_approval?: number }[];
+  roles: { name: string; is_admin?: number; description?: string; requires_approval?: number }[];
 };
 
 const OWNER_ROLE = {
   name: "Owner",
+  is_admin: 1,
   description: "Resource ownership and management permissions",
   requires_approval: 1,
+};
+
+const RESOURCE_TAGS: Record<string, string> = {
+  "Figma": "Marketing",
+  "Adobe Creative Cloud": "Marketing",
+  "Slack": "Service Delivery",
+  "Google Workspace": "Service Delivery",
+  "Zoom": "Service Delivery",
+  "Notion": "Service Delivery",
+  "GitHub": "Service Delivery",
+  "GitLab": "Service Delivery",
+  "Vercel": "Service Delivery",
+  "Sentry": "Service Delivery",
+  "Linear": "Service Delivery",
+  "Datadog": "Service Delivery",
+  "Postman": "Service Delivery",
+  "Ahrefs": "Marketing",
+  "SEMrush": "Marketing",
+  "HubSpot": "Marketing",
+  "Mailchimp": "Marketing",
+  "Google Ads": "Marketing",
+  "Meta Business Suite": "Marketing",
+  "Google Analytics": "Marketing",
+  "QuickBooks": "Finance",
+  "Xero": "Finance",
+  "Stripe Dashboard": "Finance",
+  "Brex": "Finance",
+  "Expensify": "Finance",
+  "BambooHR": "Legal",
+  "1Password Business": "Service Delivery",
+  "AWS Console": "Service Delivery",
+  "Google Cloud Platform": "Service Delivery",
+  "Cloudflare": "Service Delivery",
+  "Production Database Credentials": "Service Delivery",
+  "Production SSH Keys": "Service Delivery",
+  "Staging Environment Credentials": "Service Delivery",
+  "VPN Configuration": "Service Delivery",
+  "CI/CD Service Accounts": "Service Delivery",
+  "DNS Management": "Service Delivery",
+  "Third-party API Keys": "Service Delivery",
 };
 
 const resources: ResourceSeed[] = [
@@ -401,7 +444,7 @@ const resources: ResourceSeed[] = [
   {
     name: "AWS Console",
     description: "Amazon Web Services cloud management console.",
-    type: "infrastructure",
+    type: "secure_note",
     url: "https://console.aws.amazon.com",
     requires_approval: 1,
     approval_count: 2,
@@ -414,7 +457,7 @@ const resources: ResourceSeed[] = [
   {
     name: "Google Cloud Platform",
     description: "Google's cloud computing services and infrastructure.",
-    type: "infrastructure",
+    type: "secure_note",
     url: "https://console.cloud.google.com",
     requires_approval: 1,
     approval_count: 2,
@@ -427,7 +470,7 @@ const resources: ResourceSeed[] = [
   {
     name: "Cloudflare",
     description: "CDN, DNS, DDoS protection, and web security services.",
-    type: "infrastructure",
+    type: "secure_note",
     url: "https://dash.cloudflare.com",
     requires_approval: 1,
     approval_count: 1,
@@ -473,7 +516,7 @@ const resources: ResourceSeed[] = [
   {
     name: "VPN Configuration",
     description: "WireGuard/OpenVPN configs for connecting to internal network.",
-    type: "infrastructure",
+    type: "secure_note",
     requires_approval: 1,
     approval_count: 1,
     roles: [
@@ -495,7 +538,7 @@ const resources: ResourceSeed[] = [
   {
     name: "DNS Management",
     description: "Access to manage DNS records across company domains.",
-    type: "infrastructure",
+    type: "secure_note",
     requires_approval: 1,
     approval_count: 2,
     roles: [
@@ -530,6 +573,8 @@ for (const r of resources) {
       name: r.name,
       description: r.description,
       type: r.type,
+      tag: r.tag ?? RESOURCE_TAGS[r.name] ?? "Unassigned",
+      global_visible: r.global_visible == null ? 1 : r.global_visible ? 1 : 0,
       url: r.url ?? null,
       icon_url: null,
       owner_id: ownerId,
@@ -563,6 +608,7 @@ for (const r of resources) {
         description: role.description ?? null,
         requires_approval: role.requires_approval ?? null,
         approval_count: null,
+        is_admin: role.is_admin ?? (/admin/i.test(role.name) ? 1 : 0),
         created_at: now,
       })
       .execute();

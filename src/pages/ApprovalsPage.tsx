@@ -52,10 +52,10 @@ export function ApprovalsPage() {
 
   const reviewAccess = async (id: string, status: "approved" | "rejected") => {
     setActionLoadingId(id);
-    const res = await fetch(`/api/access-requests/${id}`, {
+    const res = await fetch("/api/access-requests/review", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ id, status }),
     });
     if (res.ok) await loadMyApprovals();
     setActionLoadingId(null);
@@ -63,10 +63,10 @@ export function ApprovalsPage() {
 
   const reviewPurchase = async (id: string, status: "approved" | "rejected") => {
     setActionLoadingId(id);
-    const res = await fetch(`/api/purchase-requests/${id}`, {
+    const res = await fetch("/api/purchase-requests/review", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ id, status }),
     });
     if (res.ok) await loadMyApprovals();
     setActionLoadingId(null);

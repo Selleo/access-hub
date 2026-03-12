@@ -3,12 +3,10 @@ import {
   Search,
   Globe,
   KeyRound,
-  Server,
   ShieldCheck,
   ShieldOff,
-  Users,
   Layers,
-  Plus,
+  LockOpen,
 } from "lucide-react";
 import { Pane } from "../components/Pane";
 import { PageHeader } from "../components/PageHeader";
@@ -20,6 +18,7 @@ type Resource = {
   name: string;
   description: string | null;
   type: string;
+  tag?: string | null;
   url: string | null;
   icon_url: string | null;
   requires_approval: number;
@@ -30,17 +29,15 @@ type Resource = {
   role_count: number;
 };
 
-const TYPE_LABELS: Record<string, string> = {
-  software: "Software",
-  secure_note: "Secure Note",
-  infrastructure: "Infrastructure",
-};
-
-const TYPE_COLORS: Record<string, { bg: string; text: string }> = {
-  software: { bg: "bg-blue-50", text: "text-blue-700" },
-  secure_note: { bg: "bg-amber-50", text: "text-amber-700" },
-  infrastructure: { bg: "bg-emerald-50", text: "text-emerald-700" },
-};
+async function parseJsonResponse<T>(res: Response): Promise<T | null> {
+  const text = await res.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
 
 function TypeIcon({ type, size = 20 }: { type: string; size?: number }) {
   switch (type) {
@@ -48,21 +45,16 @@ function TypeIcon({ type, size = 20 }: { type: string; size?: number }) {
       return <Globe size={size} />;
     case "secure_note":
       return <KeyRound size={size} />;
-    case "infrastructure":
-      return <Server size={size} />;
     default:
       return <Globe size={size} />;
   }
 }
 
-function TypeBadge({ type }: { type: string }) {
-  const colors = TYPE_COLORS[type] ?? { bg: "bg-gray-50", text: "text-gray-700" };
+function TagBadge({ tag }: { tag: string | null | undefined }) {
+  const label = tag?.trim() || "Untagged";
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] font-medium ${colors.bg} ${colors.text}`}
-    >
-      <TypeIcon type={type} size={13} />
-      {TYPE_LABELS[type] ?? type}
+    <span className="inline-flex items-center rounded-md bg-[#f3f4f8] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.03em] text-[#6c7285]">
+      {label}
     </span>
   );
 }
@@ -100,44 +92,38 @@ function ResourceCard({
             ) : null}
           </div>
         </div>
-        <TypeBadge type={resource.type} />
+        <span className="text-[12px] text-[#8990a3]">
+          {resource.requires_approval ? (
+            <span className="inline-flex items-center gap-1.5">
+              <ShieldCheck size={14} className="text-amber-500" />
+              {resource.approval_count} approval{resource.approval_count !== 1 ? "s" : ""}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5">
+              <ShieldOff size={14} className="text-emerald-500" />
+              Auto-approved
+            </span>
+          )}
+        </span>
       </div>
 
       {resource.description ? (
-        <p className="mt-3 text-[13px] leading-relaxed text-[#6c7285] line-clamp-2">
+        <p className="mt-3 mb-2 text-[13px] leading-relaxed text-[#6c7285] line-clamp-2">
           {resource.description}
         </p>
       ) : (
-        <div className="mt-3" />
+        <div className="mt-3 mb-2" />
       )}
 
       <div className="mt-auto flex items-center justify-between border-t border-[#f0f1f5] pt-4">
-        <div className="flex items-center gap-4 text-[12px] text-[#8990a3]">
-          <span className="flex items-center gap-1.5">
-            {resource.requires_approval ? (
-              <>
-                <ShieldCheck size={14} className="text-amber-500" />
-                {resource.approval_count} approval{resource.approval_count !== 1 ? "s" : ""}
-              </>
-            ) : (
-              <>
-                <ShieldOff size={14} className="text-emerald-500" />
-                Auto-approved
-              </>
-            )}
-          </span>
-          <span className="flex items-center gap-1.5">
-            <Layers size={14} />
-            {resource.role_count} role{resource.role_count !== 1 ? "s" : ""}
-          </span>
-        </div>
+        <TagBadge tag={resource.tag} />
 
         <button
           type="button"
           onClick={() => onRequestAccess(resource)}
-          className="flex items-center gap-1.5 rounded-lg bg-[#232733] px-3 py-1.5 text-[12px] font-medium text-white hover:bg-[#1a1d27]"
+          className="flex items-center gap-1.5 rounded-lg bg-[#232733] px-3 py-1.5 text-[12px] font-medium text-white transition-all duration-150 hover:-translate-y-0.5 hover:bg-[#1a1d27] hover:shadow-[0_6px_16px_rgba(26,29,39,0.25)] active:translate-y-0"
         >
-          <Plus size={13} />
+          <LockOpen size={13} />
           Request
         </button>
       </div>
@@ -145,8 +131,8 @@ function ResourceCard({
   );
 }
 
-function EmptyState({ search, type }: { search: string; type: string }) {
-  const hasFilters = search || type;
+function EmptyState({ search, tag }: { search: string; tag: string }) {
+  const hasFilters = search || tag;
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center">
       <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#f1f2f6] text-[#8990a3]">
@@ -164,26 +150,34 @@ function EmptyState({ search, type }: { search: string; type: string }) {
   );
 }
 
-const TYPE_FILTERS = [
-  { value: "", label: "All" },
-  { value: "software", label: "Software" },
-  { value: "secure_note", label: "Secure Notes" },
-  { value: "infrastructure", label: "Infrastructure" },
-];
-
 export function ResourcesPage() {
   const [resources, setResources] = useState<Resource[]>([]);
+  const [tags, setTags] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [activeType, setActiveType] = useState("");
+  const [activeTag, setActiveTag] = useState("");
   const [modalResource, setModalResource] = useState<Resource | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const fetchResources = async (searchVal: string, typeVal: string) => {
+  const tagFilters = [{ value: "", label: "All" }, ...tags.map((tag) => ({ value: tag, label: tag }))];
+
+  const fetchTags = async () => {
+    const res = await fetch("/api/resources/tags");
+    if (!res.ok) return;
+    const data = await parseJsonResponse<unknown>(res);
+    if (!Array.isArray(data)) return;
+    setTags(
+      data
+        .map((tag) => String(tag).trim())
+        .filter((tag) => tag.length > 0)
+    );
+  };
+
+  const fetchResources = async (searchVal: string, tagVal: string) => {
     const params = new URLSearchParams();
     if (searchVal) params.set("search", searchVal);
-    if (typeVal) params.set("type", typeVal);
+    if (tagVal) params.set("tag", tagVal);
 
     const res = await fetch(`/api/resources?${params}`);
     if (res.ok) {
@@ -193,14 +187,18 @@ export function ResourcesPage() {
   };
 
   useEffect(() => {
-    fetchResources(search, activeType);
-  }, [activeType]);
+    void fetchResources(search, activeTag);
+  }, [activeTag]);
+
+  useEffect(() => {
+    void fetchTags();
+  }, []);
 
   const handleSearchChange = (value: string) => {
     setSearch(value);
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      fetchResources(value, activeType);
+      fetchResources(value, activeTag);
     }, 300);
   };
 
@@ -235,15 +233,15 @@ export function ResourcesPage() {
           <span className="ml-2 hidden text-[12px] text-[#b0b5c5] sm:block">⌘K</span>
         </div>
 
-        {/* Type filter tabs */}
+        {/* Tag filter tabs */}
         <div className="flex gap-1 rounded-xl bg-[#f1f2f6] p-1">
-          {TYPE_FILTERS.map((filter) => (
+          {tagFilters.map((filter) => (
             <button
               key={filter.value}
               type="button"
-              onClick={() => setActiveType(filter.value)}
+              onClick={() => setActiveTag(filter.value)}
               className={`rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors ${
-                activeType === filter.value
+                activeTag === filter.value
                   ? "bg-white text-[#232733] shadow-sm"
                   : "text-[#7b8195] hover:text-[#4f566f]"
               }`}
@@ -261,7 +259,7 @@ export function ResourcesPage() {
             Loading resources...
           </div>
         ) : resources.length === 0 ? (
-          <EmptyState search={search} type={activeType} />
+          <EmptyState search={search} tag={activeTag} />
         ) : (
           <>
             <p className="mb-3 text-[13px] text-[#8990a3]">
@@ -285,7 +283,7 @@ export function ResourcesPage() {
           resource={modalResource}
           open={!!modalResource}
           onClose={() => setModalResource(null)}
-          onSuccess={() => fetchResources(search, activeType)}
+          onSuccess={() => fetchResources(search, activeTag)}
         />
       ) : null}
     </AppLayout>

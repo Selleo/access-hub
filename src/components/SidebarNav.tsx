@@ -5,6 +5,8 @@ import {
   KeyRound,
   ScrollText,
   ShieldCheck,
+  UserCheck,
+  SquareUserRound,
 } from "lucide-react";
 
 function NavItem({
@@ -80,6 +82,22 @@ export function SidebarNav() {
           icon={<Globe size={16} />}
           label="Manage Resources"
           onClick={() => navigate("/admin/resources")}
+        />
+        <NavItem
+          active={path === "/admin/users" || path === "/admin/directory/users"}
+          icon={<SquareUserRound size={15} />}
+          label="Users"
+          onClick={() => navigate("/admin/users")}
+        />
+        <NavItem
+          active={
+            path === "/admin/approval-groups" ||
+            path === "/admin/groups" ||
+            path === "/admin/directory/groups"
+          }
+          icon={<UserCheck size={15} />}
+          label="Approval Groups"
+          onClick={() => navigate("/admin/approval-groups")}
         />
         <NavItem
           active={path === "/audit-log"}

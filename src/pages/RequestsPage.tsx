@@ -73,7 +73,7 @@ export function RequestsPage() {
             <div>
               <h2 className="text-[16px] font-semibold text-[#232733]">Access Request</h2>
               <p className="mt-1 text-[13px] text-[#8990a3]">
-                Request access to software, secure notes, or infrastructure resources.
+                Request access to software and secure note resources.
               </p>
             </div>
             <KeyRound size={18} className="text-[#6c7285]" />

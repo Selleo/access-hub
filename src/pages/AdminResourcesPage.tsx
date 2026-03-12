@@ -9,14 +9,15 @@ type ResourceItem = {
   id: string;
   name: string;
   description: string | null;
-  type: string;
+  type: "software" | "secure_note";
+  tag: string | null;
+  global_visible: number;
   url: string | null;
   requires_approval: number;
   approval_count: number;
   created_at: string;
   owner_name: string | null;
   owner_email: string | null;
-  role_count: number;
 };
 
 async function parseJsonResponse<T>(res: Response): Promise<T | null> {
@@ -29,9 +30,8 @@ async function parseJsonResponse<T>(res: Response): Promise<T | null> {
   }
 }
 
-function humanType(type: string) {
+function humanType(type: "software" | "secure_note") {
   if (type === "secure_note") return "Secure Note";
-  if (type === "infrastructure") return "Infrastructure";
   return "Software";
 }
 
@@ -39,6 +39,7 @@ export function AdminResourcesPage() {
   const navigate = useNavigate();
   const [resources, setResources] = useState<ResourceItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [visibilityFilter, setVisibilityFilter] = useState<"catalog" | "confidential">("catalog");
 
   const fetchResources = async () => {
     setLoading(true);
@@ -58,34 +59,66 @@ export function AdminResourcesPage() {
     void fetchResources();
   }, []);
 
+  const filteredResources = resources.filter((resource) =>
+    visibilityFilter === "catalog" ? !!resource.global_visible : !resource.global_visible
+  );
+
   return (
     <AppLayout>
       <PageHeader title="Manage Resources" />
 
-      <div className="mt-5 flex items-center justify-end">
+      <div className="mt-5 flex items-center justify-end gap-3">
+        <div className="inline-flex items-center rounded-xl border border-[#dfe5f0] bg-white p-1">
+          <button
+            type="button"
+            onClick={() => setVisibilityFilter("catalog")}
+            className={`rounded-lg px-3 py-1.5 text-[12px] font-medium ${
+              visibilityFilter === "catalog"
+                ? "bg-[#232733] text-white"
+                : "text-[#6c7285] hover:bg-[#f6f7fb]"
+            }`}
+          >
+            Catalog
+          </button>
+          <button
+            type="button"
+            onClick={() => setVisibilityFilter("confidential")}
+            className={`rounded-lg px-3 py-1.5 text-[12px] font-medium ${
+              visibilityFilter === "confidential"
+                ? "bg-[#232733] text-white"
+                : "text-[#6c7285] hover:bg-[#f6f7fb]"
+            }`}
+          >
+            Confidential
+          </button>
+        </div>
+
         <button
           type="button"
           onClick={() => navigate("/admin/resources/new")}
           className="inline-flex items-center gap-2 rounded-xl bg-[#232733] px-4 py-2 text-[14px] font-medium text-white hover:bg-[#1a1d27]"
         >
           <Plus size={14} />
-          New Resource
+          Create Resource
         </button>
       </div>
 
       <Pane className="mt-4 overflow-hidden">
         {loading ? (
           <p className="py-14 text-center text-[14px] text-[#8990a3]">Loading resources...</p>
-        ) : resources.length === 0 ? (
-          <p className="py-14 text-center text-[14px] text-[#8990a3]">No resources yet.</p>
+        ) : filteredResources.length === 0 ? (
+          <p className="py-14 text-center text-[14px] text-[#8990a3]">
+            No {visibilityFilter === "catalog" ? "catalog" : "confidential"} resources.
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-left">
               <thead className="bg-[#f8f9fc]">
                 <tr className="border-b border-[#e7eaf2] text-[12px] font-semibold uppercase tracking-[0.04em] text-[#7b8195]">
                   <th className="px-4 py-3">Name</th>
+                  <th className="px-4 py-3">Tag</th>
                   <th className="px-4 py-3">Type</th>
-                  <th className="px-4 py-3">Roles</th>
+                  <th className="px-4 py-3">Visible</th>
                   <th className="px-4 py-3">Approval</th>
                   <th className="px-4 py-3">Owner</th>
                   <th className="px-4 py-3">Created</th>
@@ -93,7 +126,7 @@ export function AdminResourcesPage() {
                 </tr>
               </thead>
               <tbody>
-                {resources.map((resource) => (
+                {filteredResources.map((resource) => (
                   <tr key={resource.id} className="border-b border-[#eef1f6] text-[13px] text-[#3f455c]">
                     <td className="px-4 py-3">
                       <p className="font-semibold text-[#232733]">{resource.name}</p>
@@ -108,8 +141,13 @@ export function AdminResourcesPage() {
                         </a>
                       ) : null}
                     </td>
+                    <td className="px-4 py-3">
+                      <span className="inline-flex items-center rounded-md bg-[#f3f4f8] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.03em] text-[#6c7285]">
+                        {resource.tag?.trim() || "Untagged"}
+                      </span>
+                    </td>
                     <td className="px-4 py-3">{humanType(resource.type)}</td>
-                    <td className="px-4 py-3">{resource.role_count}</td>
+                    <td className="px-4 py-3">{resource.global_visible ? "Yes" : "No"}</td>
                     <td className="px-4 py-3">
                       {resource.requires_approval
                         ? `${resource.approval_count} approval${resource.approval_count !== 1 ? "s" : ""}`

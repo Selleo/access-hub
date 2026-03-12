@@ -33,6 +33,34 @@ const server = serve({
       return Response.json(session);
     },
 
+    "/api/resources/tags": async (req) => {
+      try {
+        await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      if (req.method !== "GET") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+
+      const rows = await db
+        .selectFrom("resource")
+        .select("tag")
+        .where("global_visible", "=", 1)
+        .execute();
+
+      const tags = Array.from(
+        new Set(
+          rows
+            .map((row) => row.tag?.trim() ?? "")
+            .filter((tag) => tag.length > 0)
+        )
+      ).sort((a, b) => a.localeCompare(b));
+
+      return Response.json(tags);
+    },
+
     "/api/resources": async (req) => {
       try {
         await requireSession(req);
@@ -43,6 +71,7 @@ const server = serve({
       const url = new URL(req.url);
       const search = url.searchParams.get("search")?.trim() ?? "";
       const type = url.searchParams.get("type")?.trim() ?? "";
+      const tag = url.searchParams.get("tag")?.trim() ?? "";
 
       let query = db
         .selectFrom("resource")
@@ -52,6 +81,8 @@ const server = serve({
           "resource.name",
           "resource.description",
           "resource.type",
+          "resource.tag",
+          "resource.global_visible",
           "resource.url",
           "resource.icon_url",
           "resource.requires_approval",
@@ -60,6 +91,7 @@ const server = serve({
           "user.name as owner_name",
           "user.image as owner_image",
         ])
+        .where("resource.global_visible", "=", 1)
         .orderBy("resource.name", "asc");
 
       if (search) {
@@ -73,6 +105,10 @@ const server = serve({
 
       if (type) {
         query = query.where("resource.type", "=", type);
+      }
+
+      if (tag) {
+        query = query.where("resource.tag", "=", tag);
       }
 
       const resources = await query.execute();
@@ -113,6 +149,8 @@ const server = serve({
               "resource.name",
               "resource.description",
               "resource.type",
+              "resource.tag",
+              "resource.global_visible",
               "resource.url",
               "resource.requires_approval",
               "resource.approval_count",
@@ -145,15 +183,15 @@ const server = serve({
           let body: {
             name?: string;
             description?: string | null;
-            type?: "software" | "secure_note" | "infrastructure";
+            type?: "software" | "secure_note";
+            tag?: string | null;
+            global_visible?: number;
             url?: string | null;
             requires_approval?: number;
             approval_count?: number;
             roles?: Array<{
               name?: string;
-              description?: string | null;
-              requires_approval?: number | null;
-              approval_count?: number | null;
+              is_admin?: number | null;
             }>;
           };
           try {
@@ -165,6 +203,8 @@ const server = serve({
           const name = body.name?.trim() ?? "";
           const description = body.description?.trim() ?? null;
           const type = body.type;
+          const tag = body.tag?.trim() ?? null;
+          const globalVisible = body.global_visible == null ? 1 : body.global_visible ? 1 : 0;
           const url = body.url?.trim() ?? null;
           const requiresApproval = body.requires_approval ? 1 : 0;
           const approvalCount = requiresApproval ? Math.max(1, Number(body.approval_count ?? 1)) : 0;
@@ -174,7 +214,7 @@ const server = serve({
             return Response.json({ error: "name and type are required" }, { status: 400 });
           }
 
-          if (!["software", "secure_note", "infrastructure"].includes(type)) {
+          if (!["software", "secure_note"].includes(type)) {
             return Response.json({ error: "Invalid type" }, { status: 400 });
           }
 
@@ -189,19 +229,16 @@ const server = serve({
           const cleanRoles = roles
             .map((role) => ({
               name: role.name?.trim() ?? "",
-              description: role.description?.trim() ?? null,
-              requires_approval:
-                role.requires_approval == null ? null : role.requires_approval ? 1 : 0,
-              approval_count:
-                role.approval_count == null ? null : Math.max(1, Number(role.approval_count)),
+              is_admin: role.is_admin ? 1 : 0,
             }))
             .filter((role) => role.name.length > 0);
-
-          if (cleanRoles.length === 0) {
-            return Response.json(
-              { error: "At least one role is required to create a resource" },
-              { status: 400 }
-            );
+          const rolesToCreate = [...cleanRoles];
+          const hasOwner = rolesToCreate.some((role) => role.name.trim().toLowerCase() === "owner");
+          if (!hasOwner) {
+            rolesToCreate.push({
+              name: "Owner",
+              is_admin: 1,
+            });
           }
 
           const resourceId = crypto.randomUUID();
@@ -214,6 +251,8 @@ const server = serve({
               name,
               description,
               type,
+              tag,
+              global_visible: globalVisible,
               url,
               icon_url: null,
               owner_id: session.user.id,
@@ -224,16 +263,17 @@ const server = serve({
             })
             .execute();
 
-          for (const role of cleanRoles) {
+          for (const role of rolesToCreate) {
             await db
               .insertInto("resource_role")
               .values({
                 id: crypto.randomUUID(),
                 resource_id: resourceId,
                 name: role.name,
-                description: role.description,
-                requires_approval: role.requires_approval,
-                approval_count: role.approval_count,
+                description: null,
+                requires_approval: null,
+                approval_count: null,
+                is_admin: role.is_admin,
                 created_at: now,
               })
               .execute();
@@ -250,7 +290,9 @@ const server = serve({
               metadata: JSON.stringify({
                 name,
                 type,
-                role_count: cleanRoles.length,
+                tag,
+                global_visible: globalVisible,
+                role_count: rolesToCreate.length,
               }),
               ip_address: req.headers.get("x-forwarded-for") ?? null,
               created_at: now,
@@ -266,6 +308,1335 @@ const server = serve({
         return Response.json({ error: "Failed to process admin resources" }, { status: 500 });
       }
     },
+    "/api/admin/users": async (req) => {
+      try {
+        try {
+          await requireSession(req);
+        } catch {
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
+        if (req.method !== "GET") {
+          return Response.json({ error: "Method not allowed" }, { status: 405 });
+        }
+
+        const users = await db
+          .selectFrom("user")
+          .select(["id", "name", "email", "image", "emailVerified", "createdAt", "updatedAt"])
+          .orderBy("createdAt", "desc")
+          .execute();
+
+        return Response.json(users);
+      } catch (error) {
+        console.error("Failed to fetch admin users", error);
+        return Response.json({ error: "Failed to fetch admin users" }, { status: 500 });
+      }
+    },
+    "/api/admin/approval-groups": async (req) => {
+      try {
+        let session;
+        try {
+          session = await requireSession(req);
+        } catch {
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
+        if (req.method === "GET") {
+          const url = new URL(req.url);
+          const groupId = url.searchParams.get("id")?.trim() ?? "";
+
+          if (groupId) {
+            const group = await db
+              .selectFrom("approval_group")
+              .select(["id", "name", "description", "created_at", "updated_at"])
+              .where("id", "=", groupId)
+              .executeTakeFirst();
+
+            if (!group) {
+              return Response.json({ error: "Approval group not found" }, { status: 404 });
+            }
+
+            const members = await db
+              .selectFrom("approval_group_member")
+              .innerJoin("user", "user.id", "approval_group_member.user_id")
+              .select([
+                "approval_group_member.user_id",
+                "user.name",
+                "user.email",
+                "approval_group_member.created_at",
+              ])
+              .where("approval_group_member.approval_group_id", "=", groupId)
+              .orderBy("user.name", "asc")
+              .execute();
+
+            return Response.json({
+              ...group,
+              members,
+            });
+          }
+
+          const groups = await db
+            .selectFrom("approval_group")
+            .leftJoin(
+              "approval_group_member",
+              "approval_group_member.approval_group_id",
+              "approval_group.id"
+            )
+            .select([
+              "approval_group.id",
+              "approval_group.name",
+              "approval_group.description",
+              "approval_group.created_at",
+              "approval_group.updated_at",
+              db.fn.count("approval_group_member.id").as("member_count"),
+            ])
+            .groupBy([
+              "approval_group.id",
+              "approval_group.name",
+              "approval_group.description",
+              "approval_group.created_at",
+              "approval_group.updated_at",
+            ])
+            .orderBy("approval_group.name", "asc")
+            .execute();
+
+          return Response.json(
+            groups.map((group) => ({
+              ...group,
+              member_count: Number(group.member_count),
+            }))
+          );
+        }
+
+        if (req.method === "POST") {
+          let body: {
+            name?: string;
+            description?: string | null;
+            member_user_ids?: string[];
+          };
+          try {
+            body = await req.json();
+          } catch {
+            return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+          }
+
+          const name = body.name?.trim() ?? "";
+          const description = body.description?.trim() ?? null;
+          const memberUserIds = Array.from(
+            new Set((body.member_user_ids ?? []).map((id) => id?.trim()).filter((id): id is string => !!id))
+          );
+
+          if (!name) {
+            return Response.json({ error: "name is required" }, { status: 400 });
+          }
+
+          const duplicate = await db
+            .selectFrom("approval_group")
+            .select("id")
+            .where("name", "=", name)
+            .executeTakeFirst();
+
+          if (duplicate) {
+            return Response.json({ error: "Approval group with this name already exists" }, { status: 409 });
+          }
+
+          if (memberUserIds.length > 0) {
+            const validUsers = await db
+              .selectFrom("user")
+              .select("id")
+              .where("id", "in", memberUserIds)
+              .execute();
+
+            if (validUsers.length !== memberUserIds.length) {
+              return Response.json({ error: "One or more selected users do not exist" }, { status: 400 });
+            }
+          }
+
+          const id = crypto.randomUUID();
+          const now = new Date().toISOString();
+
+          await db.transaction().execute(async (trx) => {
+            await trx
+              .insertInto("approval_group")
+              .values({
+                id,
+                name,
+                description,
+                created_by: session.user.id,
+                created_at: now,
+                updated_at: now,
+              })
+              .execute();
+
+            for (const userId of memberUserIds) {
+              await trx
+                .insertInto("approval_group_member")
+                .values({
+                  id: crypto.randomUUID(),
+                  approval_group_id: id,
+                  user_id: userId,
+                  created_at: now,
+                })
+                .execute();
+            }
+          });
+
+          await db
+            .insertInto("audit_log")
+            .values({
+              id: crypto.randomUUID(),
+              actor_id: session.user.id,
+              action: "approval_group.created",
+              entity_type: "approval_group",
+              entity_id: id,
+              metadata: JSON.stringify({
+                name,
+                member_count: memberUserIds.length,
+              }),
+              ip_address: req.headers.get("x-forwarded-for") ?? null,
+              created_at: now,
+            })
+            .execute();
+
+          return Response.json({ id }, { status: 201 });
+        }
+
+        if (req.method === "PATCH") {
+          let body: {
+            id?: string;
+            name?: string;
+            description?: string | null;
+            member_user_ids?: string[];
+          };
+          try {
+            body = await req.json();
+          } catch {
+            return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+          }
+
+          const groupId = body.id?.trim() ?? "";
+          const name = body.name?.trim() ?? "";
+          const description = body.description?.trim() ?? null;
+          const memberUserIds = Array.from(
+            new Set((body.member_user_ids ?? []).map((id) => id?.trim()).filter((id): id is string => !!id))
+          );
+
+          if (!groupId || !name) {
+            return Response.json({ error: "id and name are required" }, { status: 400 });
+          }
+
+          const existing = await db
+            .selectFrom("approval_group")
+            .select("id")
+            .where("id", "=", groupId)
+            .executeTakeFirst();
+
+          if (!existing) {
+            return Response.json({ error: "Approval group not found" }, { status: 404 });
+          }
+
+          const duplicate = await db
+            .selectFrom("approval_group")
+            .select("id")
+            .where("name", "=", name)
+            .where("id", "!=", groupId)
+            .executeTakeFirst();
+
+          if (duplicate) {
+            return Response.json({ error: "Approval group with this name already exists" }, { status: 409 });
+          }
+
+          if (memberUserIds.length > 0) {
+            const validUsers = await db
+              .selectFrom("user")
+              .select("id")
+              .where("id", "in", memberUserIds)
+              .execute();
+
+            if (validUsers.length !== memberUserIds.length) {
+              return Response.json({ error: "One or more selected users do not exist" }, { status: 400 });
+            }
+          }
+
+          const now = new Date().toISOString();
+
+          await db.transaction().execute(async (trx) => {
+            await trx
+              .updateTable("approval_group")
+              .set({
+                name,
+                description,
+                updated_at: now,
+              })
+              .where("id", "=", groupId)
+              .execute();
+
+            await trx
+              .deleteFrom("approval_group_member")
+              .where("approval_group_id", "=", groupId)
+              .execute();
+
+            for (const userId of memberUserIds) {
+              await trx
+                .insertInto("approval_group_member")
+                .values({
+                  id: crypto.randomUUID(),
+                  approval_group_id: groupId,
+                  user_id: userId,
+                  created_at: now,
+                })
+                .execute();
+            }
+          });
+
+          await db
+            .insertInto("audit_log")
+            .values({
+              id: crypto.randomUUID(),
+              actor_id: session.user.id,
+              action: "approval_group.updated",
+              entity_type: "approval_group",
+              entity_id: groupId,
+              metadata: JSON.stringify({
+                name,
+                member_count: memberUserIds.length,
+              }),
+              ip_address: req.headers.get("x-forwarded-for") ?? null,
+              created_at: now,
+            })
+            .execute();
+
+          return Response.json({ id: groupId });
+        }
+
+        if (req.method === "DELETE") {
+          let body: { id?: string };
+          try {
+            body = await req.json();
+          } catch {
+            return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+          }
+
+          const groupId = body.id?.trim() ?? "";
+          if (!groupId) {
+            return Response.json({ error: "id is required" }, { status: 400 });
+          }
+
+          const existing = await db
+            .selectFrom("approval_group")
+            .select(["id", "name"])
+            .where("id", "=", groupId)
+            .executeTakeFirst();
+
+          if (!existing) {
+            return Response.json({ error: "Approval group not found" }, { status: 404 });
+          }
+
+          await db.deleteFrom("approval_group").where("id", "=", groupId).execute();
+
+          const now = new Date().toISOString();
+          await db
+            .insertInto("audit_log")
+            .values({
+              id: crypto.randomUUID(),
+              actor_id: session.user.id,
+              action: "approval_group.deleted",
+              entity_type: "approval_group",
+              entity_id: groupId,
+              metadata: JSON.stringify({
+                name: existing.name,
+              }),
+              ip_address: req.headers.get("x-forwarded-for") ?? null,
+              created_at: now,
+            })
+            .execute();
+
+          return Response.json({ id: groupId });
+        }
+
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      } catch (error) {
+        console.error("Failed to process approval groups", error);
+        return Response.json({ error: "Failed to process approval groups" }, { status: 500 });
+      }
+    },
+    "/api/admin/resources/detail": async (req) => {
+      let session;
+      try {
+        session = await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      const url = new URL(req.url);
+      const resourceId = url.searchParams.get("id")?.trim() ?? "";
+      if (!resourceId) return Response.json({ error: "id is required" }, { status: 400 });
+
+      if (req.method === "GET") {
+        const resource = await db
+          .selectFrom("resource")
+          .select([
+            "id",
+            "name",
+            "description",
+            "type",
+            "tag",
+            "global_visible",
+            "url",
+            "requires_approval",
+            "approval_count",
+          ])
+          .where("id", "=", resourceId)
+          .executeTakeFirst();
+
+        if (!resource) {
+          return Response.json({ error: "Resource not found" }, { status: 404 });
+        }
+
+        const roles = await db
+          .selectFrom("resource_role")
+          .select(["id", "name", "is_admin"])
+          .where("resource_id", "=", resourceId)
+          .orderBy("name", "asc")
+          .execute();
+
+        return Response.json({
+          ...resource,
+          roles,
+        });
+      }
+
+      return Response.json({ error: "Method not allowed" }, { status: 405 });
+    },
+    "/api/admin/resources/update": async (req) => {
+      let session;
+      try {
+        session = await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      if (req.method === "PATCH") {
+        let body: {
+          id?: string;
+          name?: string;
+          description?: string | null;
+          type?: "software" | "secure_note";
+          tag?: string | null;
+          global_visible?: number;
+          url?: string | null;
+          requires_approval?: number;
+          approval_count?: number;
+          roles?: Array<{
+            name?: string;
+            is_admin?: number | null;
+          }>;
+        };
+        try {
+          body = await req.json();
+        } catch {
+          return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+        }
+
+        const resourceId = body.id?.trim() ?? "";
+        if (!resourceId) return Response.json({ error: "id is required" }, { status: 400 });
+
+        const existing = await db
+          .selectFrom("resource")
+          .select("id")
+          .where("id", "=", resourceId)
+          .executeTakeFirst();
+
+        if (!existing) {
+          return Response.json({ error: "Resource not found" }, { status: 404 });
+        }
+
+        const name = body.name?.trim() ?? "";
+        const description = body.description?.trim() ?? null;
+        const type = body.type;
+        const tag = body.tag?.trim() ?? null;
+        const globalVisible = body.global_visible == null ? 1 : body.global_visible ? 1 : 0;
+        const requestUrl = body.url?.trim() ?? null;
+        const requiresApproval = body.requires_approval ? 1 : 0;
+        const approvalCount = requiresApproval ? Math.max(1, Number(body.approval_count ?? 1)) : 0;
+        const roles = body.roles ?? [];
+
+        if (!name || !type) {
+          return Response.json({ error: "name and type are required" }, { status: 400 });
+        }
+
+        if (!["software", "secure_note"].includes(type)) {
+          return Response.json({ error: "Invalid type" }, { status: 400 });
+        }
+
+        if (requestUrl) {
+          try {
+            new URL(requestUrl);
+          } catch {
+            return Response.json({ error: "Invalid URL" }, { status: 400 });
+          }
+        }
+
+        const cleanRoles = roles
+          .map((role) => ({
+            name: role.name?.trim() ?? "",
+            is_admin: role.is_admin ? 1 : 0,
+          }))
+          .filter((role) => role.name.length > 0);
+
+        if (cleanRoles.length === 0) {
+          return Response.json(
+            { error: "At least one role is required to update a resource" },
+            { status: 400 }
+          );
+        }
+
+        const hasOwner = cleanRoles.some((role) => role.name.trim().toLowerCase() === "owner");
+        if (!hasOwner) {
+          return Response.json(
+            { error: "Owner role is required and cannot be removed" },
+            { status: 400 }
+          );
+        }
+
+        const now = new Date().toISOString();
+
+        await db
+          .updateTable("resource")
+          .set({
+            name,
+            description,
+            type,
+            tag,
+            global_visible: globalVisible,
+            url: requestUrl,
+            requires_approval: requiresApproval,
+            approval_count: approvalCount,
+            updated_at: now,
+          })
+          .where("id", "=", resourceId)
+          .execute();
+
+        await db.deleteFrom("resource_role").where("resource_id", "=", resourceId).execute();
+        for (const role of cleanRoles) {
+          const isOwner = role.name.trim().toLowerCase() === "owner";
+          await db
+            .insertInto("resource_role")
+            .values({
+              id: crypto.randomUUID(),
+              resource_id: resourceId,
+              name: role.name,
+              description: null,
+              requires_approval: null,
+              approval_count: null,
+              is_admin: isOwner ? 1 : role.is_admin,
+              created_at: now,
+            })
+            .execute();
+        }
+
+        await db
+          .insertInto("audit_log")
+          .values({
+            id: crypto.randomUUID(),
+            actor_id: session.user.id,
+            action: "resource.updated",
+            entity_type: "resource",
+            entity_id: resourceId,
+            metadata: JSON.stringify({
+              name,
+              type,
+              tag,
+              global_visible: globalVisible,
+              role_count: cleanRoles.length,
+            }),
+            ip_address: req.headers.get("x-forwarded-for") ?? null,
+            created_at: now,
+          })
+          .execute();
+
+        return Response.json({ id: resourceId });
+      }
+
+      return Response.json({ error: "Method not allowed" }, { status: 405 });
+    },
+    "/api/admin/resources/secrets": async (req) => {
+      try {
+        await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      if (req.method !== "GET") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+
+      const url = new URL(req.url);
+      const resourceId = url.searchParams.get("resource_id")?.trim() ?? "";
+      if (!resourceId) return Response.json({ error: "resource_id is required" }, { status: 400 });
+
+      const resource = await db
+        .selectFrom("resource")
+        .select("id")
+        .where("id", "=", resourceId)
+        .executeTakeFirst();
+
+      if (!resource) return Response.json({ error: "Resource not found" }, { status: 404 });
+
+      const secrets = await db
+        .selectFrom("secret")
+        .select(["id", "name", "type", "encrypted_value", "archived_at"])
+        .where("resource_id", "=", resourceId)
+        .where("archived_at", "is", null)
+        .orderBy("created_at", "asc")
+        .execute();
+
+      return Response.json(secrets);
+    },
+    "/api/admin/resources/secrets/create": async (req) => {
+      let session;
+      try {
+        session = await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      if (req.method !== "POST") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+
+      let body: {
+        resource_id?: string;
+        name?: string | null;
+        type?: string;
+        value?: string | null;
+      };
+      try {
+        body = await req.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+      }
+
+      const resourceId = body.resource_id?.trim() ?? "";
+      if (!resourceId) return Response.json({ error: "resource_id is required" }, { status: 400 });
+
+      const allowedSecretTypes = new Set(["text", "password", "totp", "note"]);
+      const type = body.type?.trim() ?? "";
+      if (!allowedSecretTypes.has(type)) {
+        return Response.json({ error: "Invalid secret type" }, { status: 400 });
+      }
+
+      const resource = await db
+        .selectFrom("resource")
+        .select("id")
+        .where("id", "=", resourceId)
+        .executeTakeFirst();
+      if (!resource) return Response.json({ error: "Resource not found" }, { status: 404 });
+
+      const now = new Date().toISOString();
+      const id = crypto.randomUUID();
+      await db
+        .insertInto("secret")
+        .values({
+          id,
+          resource_id: resourceId,
+          name: body.name?.trim() ?? "",
+          encrypted_value: body.value ?? "",
+          type,
+          created_by: session.user.id,
+          created_at: now,
+          updated_at: now,
+          archived_at: null,
+        })
+        .execute();
+
+      await db
+        .insertInto("audit_log")
+        .values({
+          id: crypto.randomUUID(),
+          actor_id: session.user.id,
+          action: "secret.created",
+          entity_type: "secret",
+          entity_id: id,
+          metadata: JSON.stringify({
+            resource_id: resourceId,
+            type,
+          }),
+          ip_address: req.headers.get("x-forwarded-for") ?? null,
+          created_at: now,
+        })
+        .execute();
+
+      return Response.json({ id, resource_id: resourceId }, { status: 201 });
+    },
+    "/api/admin/resources/secrets/update": async (req) => {
+      let session;
+      try {
+        session = await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      if (req.method !== "PATCH") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+
+      let body: {
+        id?: string;
+        name?: string | null;
+        type?: string;
+        value?: string | null;
+      };
+      try {
+        body = await req.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+      }
+
+      const secretId = body.id?.trim() ?? "";
+      if (!secretId) return Response.json({ error: "id is required" }, { status: 400 });
+
+      const existing = await db
+        .selectFrom("secret")
+        .select(["id", "resource_id"])
+        .where("id", "=", secretId)
+        .where("archived_at", "is", null)
+        .executeTakeFirst();
+      if (!existing) return Response.json({ error: "Secret not found" }, { status: 404 });
+
+      const allowedSecretTypes = new Set(["text", "password", "totp", "note"]);
+      if (body.type != null && !allowedSecretTypes.has(body.type.trim())) {
+        return Response.json({ error: "Invalid secret type" }, { status: 400 });
+      }
+
+      const now = new Date().toISOString();
+      await db
+        .updateTable("secret")
+        .set({
+          name: body.name?.trim() ?? "",
+          encrypted_value: body.value ?? "",
+          updated_at: now,
+        })
+        .where("id", "=", secretId)
+        .execute();
+
+      await db
+        .insertInto("audit_log")
+        .values({
+          id: crypto.randomUUID(),
+          actor_id: session.user.id,
+          action: "secret.updated",
+          entity_type: "secret",
+          entity_id: secretId,
+          metadata: JSON.stringify({
+            resource_id: existing.resource_id,
+          }),
+          ip_address: req.headers.get("x-forwarded-for") ?? null,
+          created_at: now,
+        })
+        .execute();
+
+      return Response.json({ id: secretId, resource_id: existing.resource_id });
+    },
+    "/api/admin/resources/secrets/delete": async (req) => {
+      let session;
+      try {
+        session = await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      if (req.method !== "DELETE") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+
+      let body: { id?: string };
+      try {
+        body = await req.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+      }
+
+      const secretId = body.id?.trim() ?? "";
+      if (!secretId) return Response.json({ error: "id is required" }, { status: 400 });
+
+      const existing = await db
+        .selectFrom("secret")
+        .select(["id", "archived_at"])
+        .where("id", "=", secretId)
+        .executeTakeFirst();
+      if (!existing) return Response.json({ error: "Secret not found" }, { status: 404 });
+      if (existing.archived_at) return Response.json({ ok: true, archived: true });
+
+      const now = new Date().toISOString();
+      await db
+        .updateTable("secret")
+        .set({
+          archived_at: now,
+          updated_at: now,
+        })
+        .where("id", "=", secretId)
+        .execute();
+
+      await db
+        .insertInto("audit_log")
+        .values({
+          id: crypto.randomUUID(),
+          actor_id: session.user.id,
+          action: "secret.archived",
+          entity_type: "secret",
+          entity_id: secretId,
+          metadata: null,
+          ip_address: req.headers.get("x-forwarded-for") ?? null,
+          created_at: now,
+        })
+        .execute();
+
+      return Response.json({ ok: true, id: secretId, archived_at: now });
+    },
+    "/api/admin/approval-groups/detail": async (req) => {
+      let session;
+      try {
+        session = await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      const url = new URL(req.url);
+      const groupId = url.searchParams.get("id")?.trim() ?? "";
+      if (!groupId) return Response.json({ error: "id is required" }, { status: 400 });
+
+      if (req.method === "GET") {
+        const group = await db
+          .selectFrom("approval_group")
+          .select(["id", "name", "description", "created_at", "updated_at"])
+          .where("id", "=", groupId)
+          .executeTakeFirst();
+
+        if (!group) {
+          return Response.json({ error: "Approval group not found" }, { status: 404 });
+        }
+
+        const members = await db
+          .selectFrom("approval_group_member")
+          .innerJoin("user", "user.id", "approval_group_member.user_id")
+          .select([
+            "approval_group_member.user_id",
+            "user.name",
+            "user.email",
+            "approval_group_member.created_at",
+          ])
+          .where("approval_group_member.approval_group_id", "=", groupId)
+          .orderBy("user.name", "asc")
+          .execute();
+
+        return Response.json({
+          ...group,
+          members,
+        });
+      }
+
+      return Response.json({ error: "Method not allowed" }, { status: 405 });
+    },
+    "/api/admin/approval-groups/update": async (req) => {
+      let session;
+      try {
+        session = await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      if (req.method === "PATCH") {
+        let body: {
+          id?: string;
+          name?: string;
+          description?: string | null;
+          member_user_ids?: string[];
+        };
+        try {
+          body = await req.json();
+        } catch {
+          return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+        }
+
+        const groupId = body.id?.trim() ?? "";
+        if (!groupId) return Response.json({ error: "id is required" }, { status: 400 });
+
+        const existing = await db
+          .selectFrom("approval_group")
+          .select("id")
+          .where("id", "=", groupId)
+          .executeTakeFirst();
+
+        if (!existing) {
+          return Response.json({ error: "Approval group not found" }, { status: 404 });
+        }
+
+        const name = body.name?.trim() ?? "";
+        const description = body.description?.trim() ?? null;
+        const memberUserIds = Array.from(
+          new Set((body.member_user_ids ?? []).map((id) => id?.trim()).filter((id): id is string => !!id))
+        );
+
+        if (!name) {
+          return Response.json({ error: "name is required" }, { status: 400 });
+        }
+
+        const duplicate = await db
+          .selectFrom("approval_group")
+          .select("id")
+          .where("name", "=", name)
+          .where("id", "!=", groupId)
+          .executeTakeFirst();
+
+        if (duplicate) {
+          return Response.json({ error: "Approval group with this name already exists" }, { status: 409 });
+        }
+
+        if (memberUserIds.length > 0) {
+          const validUsers = await db
+            .selectFrom("user")
+            .select("id")
+            .where("id", "in", memberUserIds)
+            .execute();
+
+          if (validUsers.length !== memberUserIds.length) {
+            return Response.json({ error: "One or more selected users do not exist" }, { status: 400 });
+          }
+        }
+
+        const now = new Date().toISOString();
+
+        await db.transaction().execute(async (trx) => {
+          await trx
+            .updateTable("approval_group")
+            .set({
+              name,
+              description,
+              updated_at: now,
+            })
+            .where("id", "=", groupId)
+            .execute();
+
+          await trx
+            .deleteFrom("approval_group_member")
+            .where("approval_group_id", "=", groupId)
+            .execute();
+
+          for (const userId of memberUserIds) {
+            await trx
+              .insertInto("approval_group_member")
+              .values({
+                id: crypto.randomUUID(),
+                approval_group_id: groupId,
+                user_id: userId,
+                created_at: now,
+              })
+              .execute();
+          }
+        });
+
+        await db
+          .insertInto("audit_log")
+          .values({
+            id: crypto.randomUUID(),
+            actor_id: session.user.id,
+            action: "approval_group.updated",
+            entity_type: "approval_group",
+            entity_id: groupId,
+            metadata: JSON.stringify({
+              name,
+              member_count: memberUserIds.length,
+            }),
+            ip_address: req.headers.get("x-forwarded-for") ?? null,
+            created_at: now,
+          })
+          .execute();
+
+        return Response.json({ id: groupId });
+      }
+
+      return Response.json({ error: "Method not allowed" }, { status: 405 });
+    },
+    "/api/admin/approval-groups/delete": async (req) => {
+      let session;
+      try {
+        session = await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      if (req.method === "DELETE") {
+        let body: { id?: string };
+        try {
+          body = await req.json();
+        } catch {
+          return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+        }
+
+        const groupId = body.id?.trim() ?? "";
+        if (!groupId) return Response.json({ error: "id is required" }, { status: 400 });
+
+        const existing = await db
+          .selectFrom("approval_group")
+          .select(["id", "name"])
+          .where("id", "=", groupId)
+          .executeTakeFirst();
+
+        if (!existing) {
+          return Response.json({ error: "Approval group not found" }, { status: 404 });
+        }
+
+        await db.deleteFrom("approval_group").where("id", "=", groupId).execute();
+
+        const now = new Date().toISOString();
+        await db
+          .insertInto("audit_log")
+          .values({
+            id: crypto.randomUUID(),
+            actor_id: session.user.id,
+            action: "approval_group.deleted",
+            entity_type: "approval_group",
+            entity_id: groupId,
+            metadata: JSON.stringify({
+              name: existing.name,
+            }),
+            ip_address: req.headers.get("x-forwarded-for") ?? null,
+            created_at: now,
+          })
+          .execute();
+
+        return Response.json({ id: groupId });
+      }
+
+      return Response.json({ error: "Method not allowed" }, { status: 405 });
+    },
+    "/api/resources/roles": async (req) => {
+      try {
+        await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      if (req.method !== "GET") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+
+      const url = new URL(req.url);
+      const resourceId = url.searchParams.get("resource_id")?.trim() ?? "";
+      if (!resourceId) return Response.json({ error: "resource_id is required" }, { status: 400 });
+
+      const roles = await db
+        .selectFrom("resource_role")
+        .select(["id", "name", "is_admin"])
+        .where("resource_id", "=", resourceId)
+        .orderBy("name", "asc")
+        .execute();
+
+      return Response.json(roles);
+    },
+    "/api/access-requests/review": async (req) => {
+      if (req.method !== "PATCH") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+
+      let session;
+      try {
+        session = await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      let body: { id?: string; status?: string };
+      try {
+        body = await req.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+      }
+
+      const requestId = body.id?.trim() ?? "";
+      const nextStatus = body.status;
+      if (!requestId) return Response.json({ error: "id is required" }, { status: 400 });
+      if (!nextStatus || !["approved", "rejected"].includes(nextStatus)) {
+        return Response.json(
+          { error: "status must be one of: approved, rejected" },
+          { status: 400 }
+        );
+      }
+
+      const existing = await db
+        .selectFrom("access_request")
+        .select([
+          "id",
+          "requester_id",
+          "resource_id",
+          "resource_role_id",
+          "status",
+          "expires_at",
+        ])
+        .where("id", "=", requestId)
+        .executeTakeFirst();
+
+      if (!existing) {
+        return Response.json({ error: "Access request not found" }, { status: 404 });
+      }
+
+      if (existing.requester_id === session.user.id) {
+        return Response.json(
+          { error: "You cannot approve your own access request" },
+          { status: 403 }
+        );
+      }
+
+      if (existing.status !== "pending") {
+        return Response.json(
+          { error: `Access request is already ${existing.status}` },
+          { status: 409 }
+        );
+      }
+
+      const now = new Date().toISOString();
+
+      await db
+        .updateTable("access_request")
+        .set({
+          status: nextStatus,
+          updated_at: now,
+        })
+        .where("id", "=", requestId)
+        .execute();
+
+      if (nextStatus === "approved") {
+        const grantId = crypto.randomUUID();
+        await db
+          .insertInto("access_grant")
+          .values({
+            id: grantId,
+            user_id: existing.requester_id,
+            resource_id: existing.resource_id,
+            resource_role_id: existing.resource_role_id,
+            access_request_id: existing.id,
+            status: "active",
+            granted_at: now,
+            expires_at: existing.expires_at,
+            revoked_at: null,
+            created_at: now,
+          })
+          .execute();
+
+        await db
+          .insertInto("audit_log")
+          .values({
+            id: crypto.randomUUID(),
+            actor_id: session.user.id,
+            action: "access.granted",
+            entity_type: "access_grant",
+            entity_id: grantId,
+            metadata: JSON.stringify({
+              mode: "manual",
+              access_request_id: existing.id,
+              resource_id: existing.resource_id,
+              resource_role_id: existing.resource_role_id,
+              expires_at: existing.expires_at,
+            }),
+            ip_address: req.headers.get("x-forwarded-for") ?? null,
+            created_at: now,
+          })
+          .execute();
+      }
+
+      await db
+        .insertInto("audit_log")
+        .values({
+          id: crypto.randomUUID(),
+          actor_id: session.user.id,
+          action: "access.reviewed",
+          entity_type: "access_request",
+          entity_id: requestId,
+          metadata: JSON.stringify({
+            to: nextStatus,
+          }),
+          ip_address: req.headers.get("x-forwarded-for") ?? null,
+          created_at: now,
+        })
+        .execute();
+
+      return Response.json({ id: requestId, status: nextStatus });
+    },
+    "/api/purchase-requests/review": async (req) => {
+      if (req.method !== "PATCH") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+
+      let session;
+      try {
+        session = await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      let body: { id?: string; status?: string };
+      try {
+        body = await req.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+      }
+
+      const requestId = body.id?.trim() ?? "";
+      const nextStatus = body.status;
+      if (!requestId) return Response.json({ error: "id is required" }, { status: 400 });
+      if (!nextStatus || !["approved", "rejected", "purchased"].includes(nextStatus)) {
+        return Response.json(
+          { error: "status must be one of: approved, rejected, purchased" },
+          { status: 400 }
+        );
+      }
+
+      const existing = await db
+        .selectFrom("purchase_request")
+        .select(["id", "requester_id", "status"])
+        .where("id", "=", requestId)
+        .executeTakeFirst();
+
+      if (!existing) {
+        return Response.json({ error: "Purchase request not found" }, { status: 404 });
+      }
+
+      if (existing.requester_id === session.user.id) {
+        return Response.json(
+          { error: "You cannot review your own purchase request" },
+          { status: 403 }
+        );
+      }
+
+      const validTransition =
+        (existing.status === "pending" && (nextStatus === "approved" || nextStatus === "rejected")) ||
+        (existing.status === "approved" && nextStatus === "purchased");
+
+      if (!validTransition) {
+        return Response.json(
+          {
+            error: `Invalid status transition from ${existing.status} to ${nextStatus}`,
+          },
+          { status: 409 }
+        );
+      }
+
+      const now = new Date().toISOString();
+
+      await db
+        .updateTable("purchase_request")
+        .set({
+          status: nextStatus,
+          reviewer_id: session.user.id,
+          updated_at: now,
+        })
+        .where("id", "=", requestId)
+        .execute();
+
+      await db
+        .insertInto("audit_log")
+        .values({
+          id: crypto.randomUUID(),
+          actor_id: session.user.id,
+          action: "purchase.status_changed",
+          entity_type: "purchase_request",
+          entity_id: requestId,
+          metadata: JSON.stringify({
+            from: existing.status,
+            to: nextStatus,
+          }),
+          ip_address: req.headers.get("x-forwarded-for") ?? null,
+          created_at: now,
+        })
+        .execute();
+
+      return Response.json({ id: requestId, status: nextStatus });
+    },
+    "/api/my-access/detail": async (req) => {
+      if (req.method !== "GET") {
+        return Response.json({ error: "Method not allowed" }, { status: 405 });
+      }
+
+      let session;
+      try {
+        session = await requireSession(req);
+      } catch {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      const url = new URL(req.url);
+      const requestId = url.searchParams.get("request_id")?.trim() ?? "";
+      if (!requestId) return Response.json({ error: "request_id is required" }, { status: 400 });
+
+      const request = await db
+        .selectFrom("access_request")
+        .leftJoin("resource", "resource.id", "access_request.resource_id")
+        .leftJoin("resource_role", "resource_role.id", "access_request.resource_role_id")
+        .leftJoin("user as owner", "owner.id", "resource.owner_id")
+        .select([
+          "access_request.id",
+          "access_request.requester_id",
+          "access_request.resource_id",
+          "access_request.resource_role_id",
+          "access_request.status",
+          "access_request.reason",
+          "access_request.lease_duration_days",
+          "access_request.expires_at",
+          "access_request.created_at",
+          "access_request.updated_at",
+          "resource.name as resource_name",
+          "resource.description as resource_description",
+          "resource.type as resource_type",
+          "resource.url as resource_url",
+          "resource.requires_approval",
+          "resource.approval_count",
+          "resource_role.name as role_name",
+          "resource_role.description as role_description",
+          "owner.name as owner_name",
+        ])
+        .where("access_request.id", "=", requestId)
+        .where("access_request.requester_id", "=", session.user.id)
+        .executeTakeFirst();
+
+      if (!request) {
+        return Response.json({ error: "Request not found" }, { status: 404 });
+      }
+
+      const approvals = await db
+        .selectFrom("access_approval")
+        .leftJoin("user", "user.id", "access_approval.approver_id")
+        .select([
+          "access_approval.id",
+          "access_approval.decision",
+          "access_approval.comment",
+          "access_approval.created_at",
+          "user.name as approver_name",
+        ])
+        .where("access_approval.access_request_id", "=", requestId)
+        .orderBy("access_approval.created_at", "asc")
+        .execute();
+
+      const grant = await db
+        .selectFrom("access_grant")
+        .select([
+          "id",
+          "status",
+          "granted_at",
+          "expires_at",
+          "revoked_at",
+        ])
+        .where("access_request_id", "=", requestId)
+        .where("user_id", "=", session.user.id)
+        .executeTakeFirst();
+
+      return Response.json({
+        ...request,
+        approvals,
+        grant,
+      });
+    },
+    "/api/*": async () => Response.json({ error: "Not found" }, { status: 404 }),
 
     "/api/access-requests": async (req) => {
       try {
@@ -311,7 +1682,7 @@ const server = serve({
 
         const role = await db
           .selectFrom("resource_role")
-          .select(["id", "requires_approval", "approval_count"])
+          .select(["id"])
           .where("id", "=", resource_role_id)
           .where("resource_id", "=", resource_id)
           .executeTakeFirst();
@@ -334,10 +1705,7 @@ const server = serve({
           return Response.json({ error: "You already have a pending request for this role" }, { status: 409 });
         }
 
-        const needsApproval =
-          role.requires_approval != null
-            ? !!role.requires_approval
-            : !!resource.requires_approval;
+        const needsApproval = !!resource.requires_approval;
 
         const now = new Date().toISOString();
         const requestId = crypto.randomUUID();
@@ -742,520 +2110,11 @@ const server = serve({
     "/": index,
     "/*": index,
   },
-
   async fetch(req) {
     const url = new URL(req.url);
-
-    // Match /api/admin/resources/:id
-    const adminResourceMatch = url.pathname.match(/^\/api\/admin\/resources\/([^/]+)$/);
-    if (adminResourceMatch) {
-      let session;
-      try {
-        session = await requireSession(req);
-      } catch {
-        return Response.json({ error: "Unauthorized" }, { status: 401 });
-      }
-
-      const resourceId = adminResourceMatch[1]!;
-
-      if (req.method === "GET") {
-        const resource = await db
-          .selectFrom("resource")
-          .select([
-            "id",
-            "name",
-            "description",
-            "type",
-            "url",
-            "requires_approval",
-            "approval_count",
-          ])
-          .where("id", "=", resourceId)
-          .executeTakeFirst();
-
-        if (!resource) {
-          return Response.json({ error: "Resource not found" }, { status: 404 });
-        }
-
-        const roles = await db
-          .selectFrom("resource_role")
-          .select(["id", "name", "description", "requires_approval", "approval_count"])
-          .where("resource_id", "=", resourceId)
-          .orderBy("name", "asc")
-          .execute();
-
-        return Response.json({
-          ...resource,
-          roles,
-        });
-      }
-
-      if (req.method === "PATCH") {
-        let body: {
-          name?: string;
-          description?: string | null;
-          type?: "software" | "secure_note" | "infrastructure";
-          url?: string | null;
-          requires_approval?: number;
-          approval_count?: number;
-            roles?: Array<{
-              name?: string;
-              description?: string | null;
-              requires_approval?: number | null;
-              approval_count?: number | null;
-            }>;
-          };
-        try {
-          body = await req.json();
-        } catch {
-          return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-        }
-
-        const existing = await db
-          .selectFrom("resource")
-          .select("id")
-          .where("id", "=", resourceId)
-          .executeTakeFirst();
-
-        if (!existing) {
-          return Response.json({ error: "Resource not found" }, { status: 404 });
-        }
-
-        const name = body.name?.trim() ?? "";
-        const description = body.description?.trim() ?? null;
-        const type = body.type;
-        const requestUrl = body.url?.trim() ?? null;
-        const requiresApproval = body.requires_approval ? 1 : 0;
-        const approvalCount = requiresApproval ? Math.max(1, Number(body.approval_count ?? 1)) : 0;
-        const roles = body.roles ?? [];
-
-        if (!name || !type) {
-          return Response.json({ error: "name and type are required" }, { status: 400 });
-        }
-
-        if (!["software", "secure_note", "infrastructure"].includes(type)) {
-          return Response.json({ error: "Invalid type" }, { status: 400 });
-        }
-
-        if (requestUrl) {
-          try {
-            new URL(requestUrl);
-          } catch {
-            return Response.json({ error: "Invalid URL" }, { status: 400 });
-          }
-        }
-
-        const cleanRoles = roles
-          .map((role) => ({
-            name: role.name?.trim() ?? "",
-            description: role.description?.trim() ?? null,
-            requires_approval:
-              role.requires_approval == null ? null : role.requires_approval ? 1 : 0,
-            approval_count:
-              role.approval_count == null ? null : Math.max(1, Number(role.approval_count)),
-          }))
-          .filter((role) => role.name.length > 0);
-
-        if (cleanRoles.length === 0) {
-          return Response.json(
-            { error: "At least one role is required to update a resource" },
-            { status: 400 }
-          );
-        }
-
-        const now = new Date().toISOString();
-
-        await db
-          .updateTable("resource")
-          .set({
-            name,
-            description,
-            type,
-            url: requestUrl,
-            requires_approval: requiresApproval,
-            approval_count: approvalCount,
-            updated_at: now,
-          })
-          .where("id", "=", resourceId)
-          .execute();
-
-        await db.deleteFrom("resource_role").where("resource_id", "=", resourceId).execute();
-        for (const role of cleanRoles) {
-          await db
-            .insertInto("resource_role")
-            .values({
-              id: crypto.randomUUID(),
-              resource_id: resourceId,
-              name: role.name,
-              description: role.description,
-              requires_approval: role.requires_approval,
-              approval_count: role.approval_count,
-              created_at: now,
-            })
-            .execute();
-        }
-
-        await db
-          .insertInto("audit_log")
-          .values({
-            id: crypto.randomUUID(),
-            actor_id: session.user.id,
-            action: "resource.updated",
-            entity_type: "resource",
-            entity_id: resourceId,
-            metadata: JSON.stringify({
-              name,
-              type,
-              role_count: cleanRoles.length,
-            }),
-            ip_address: req.headers.get("x-forwarded-for") ?? null,
-            created_at: now,
-          })
-          .execute();
-
-        return Response.json({ id: resourceId });
-      }
-
-      return Response.json({ error: "Method not allowed" }, { status: 405 });
-    }
-
-    // Match /api/resources/:id/roles
-    const rolesMatch = url.pathname.match(/^\/api\/resources\/([^/]+)\/roles$/);
-    if (rolesMatch) {
-      try {
-        await requireSession(req);
-      } catch {
-        return Response.json({ error: "Unauthorized" }, { status: 401 });
-      }
-
-      const resourceId = rolesMatch[1]!;
-
-      const roles = await db
-        .selectFrom("resource_role")
-        .select(["id", "name", "description", "requires_approval"])
-        .where("resource_id", "=", resourceId)
-        .orderBy("name", "asc")
-        .execute();
-
-      return Response.json(roles);
-    }
-
-    // Match /api/access-requests/:id
-    const accessMatch = url.pathname.match(/^\/api\/access-requests\/([^/]+)$/);
-    if (accessMatch) {
-      if (req.method !== "PATCH") {
-        return Response.json({ error: "Method not allowed" }, { status: 405 });
-      }
-
-      let session;
-      try {
-        session = await requireSession(req);
-      } catch {
-        return Response.json({ error: "Unauthorized" }, { status: 401 });
-      }
-
-      const requestId = accessMatch[1]!;
-
-      let body: { status?: string };
-      try {
-        body = await req.json();
-      } catch {
-        return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-      }
-
-      const nextStatus = body.status;
-      if (!nextStatus || !["approved", "rejected"].includes(nextStatus)) {
-        return Response.json(
-          { error: "status must be one of: approved, rejected" },
-          { status: 400 }
-        );
-      }
-
-      const existing = await db
-        .selectFrom("access_request")
-        .select([
-          "id",
-          "requester_id",
-          "resource_id",
-          "resource_role_id",
-          "status",
-          "expires_at",
-        ])
-        .where("id", "=", requestId)
-        .executeTakeFirst();
-
-      if (!existing) {
-        return Response.json({ error: "Access request not found" }, { status: 404 });
-      }
-
-      if (existing.requester_id === session.user.id) {
-        return Response.json(
-          { error: "You cannot approve your own access request" },
-          { status: 403 }
-        );
-      }
-
-      if (existing.status !== "pending") {
-        return Response.json(
-          { error: `Access request is already ${existing.status}` },
-          { status: 409 }
-        );
-      }
-
-      const now = new Date().toISOString();
-
-      await db
-        .updateTable("access_request")
-        .set({
-          status: nextStatus,
-          updated_at: now,
-        })
-        .where("id", "=", requestId)
-        .execute();
-
-      if (nextStatus === "approved") {
-        const grantId = crypto.randomUUID();
-        await db
-          .insertInto("access_grant")
-          .values({
-            id: grantId,
-            user_id: existing.requester_id,
-            resource_id: existing.resource_id,
-            resource_role_id: existing.resource_role_id,
-            access_request_id: existing.id,
-            status: "active",
-            granted_at: now,
-            expires_at: existing.expires_at,
-            revoked_at: null,
-            created_at: now,
-          })
-          .execute();
-
-        await db
-          .insertInto("audit_log")
-          .values({
-            id: crypto.randomUUID(),
-            actor_id: session.user.id,
-            action: "access.granted",
-            entity_type: "access_grant",
-            entity_id: grantId,
-            metadata: JSON.stringify({
-              mode: "manual",
-              access_request_id: existing.id,
-              resource_id: existing.resource_id,
-              resource_role_id: existing.resource_role_id,
-              expires_at: existing.expires_at,
-            }),
-            ip_address: req.headers.get("x-forwarded-for") ?? null,
-            created_at: now,
-          })
-          .execute();
-      }
-
-      await db
-        .insertInto("audit_log")
-        .values({
-          id: crypto.randomUUID(),
-          actor_id: session.user.id,
-          action: "access.reviewed",
-          entity_type: "access_request",
-          entity_id: requestId,
-          metadata: JSON.stringify({
-            to: nextStatus,
-          }),
-          ip_address: req.headers.get("x-forwarded-for") ?? null,
-          created_at: now,
-        })
-        .execute();
-
-      return Response.json({ id: requestId, status: nextStatus });
-    }
-
-    // Match /api/purchase-requests/:id
-    const purchaseMatch = url.pathname.match(/^\/api\/purchase-requests\/([^/]+)$/);
-    if (purchaseMatch) {
-      if (req.method !== "PATCH") {
-        return Response.json({ error: "Method not allowed" }, { status: 405 });
-      }
-
-      let session;
-      try {
-        session = await requireSession(req);
-      } catch {
-        return Response.json({ error: "Unauthorized" }, { status: 401 });
-      }
-
-      const requestId = purchaseMatch[1]!;
-
-      let body: { status?: string };
-      try {
-        body = await req.json();
-      } catch {
-        return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-      }
-
-      const nextStatus = body.status;
-      if (!nextStatus || !["approved", "rejected", "purchased"].includes(nextStatus)) {
-        return Response.json(
-          { error: "status must be one of: approved, rejected, purchased" },
-          { status: 400 }
-        );
-      }
-
-      const existing = await db
-        .selectFrom("purchase_request")
-        .select(["id", "requester_id", "status"])
-        .where("id", "=", requestId)
-        .executeTakeFirst();
-
-      if (!existing) {
-        return Response.json({ error: "Purchase request not found" }, { status: 404 });
-      }
-
-      if (existing.requester_id === session.user.id) {
-        return Response.json(
-          { error: "You cannot review your own purchase request" },
-          { status: 403 }
-        );
-      }
-
-      const validTransition =
-        (existing.status === "pending" && (nextStatus === "approved" || nextStatus === "rejected")) ||
-        (existing.status === "approved" && nextStatus === "purchased");
-
-      if (!validTransition) {
-        return Response.json(
-          {
-            error: `Invalid status transition from ${existing.status} to ${nextStatus}`,
-          },
-          { status: 409 }
-        );
-      }
-
-      const now = new Date().toISOString();
-
-      await db
-        .updateTable("purchase_request")
-        .set({
-          status: nextStatus,
-          reviewer_id: session.user.id,
-          updated_at: now,
-        })
-        .where("id", "=", requestId)
-        .execute();
-
-      await db
-        .insertInto("audit_log")
-        .values({
-          id: crypto.randomUUID(),
-          actor_id: session.user.id,
-          action: "purchase.status_changed",
-          entity_type: "purchase_request",
-          entity_id: requestId,
-          metadata: JSON.stringify({
-            from: existing.status,
-            to: nextStatus,
-          }),
-          ip_address: req.headers.get("x-forwarded-for") ?? null,
-          created_at: now,
-        })
-        .execute();
-
-      return Response.json({ id: requestId, status: nextStatus });
-    }
-
-    // Match /api/my-access/:requestId
-    const myAccessMatch = url.pathname.match(/^\/api\/my-access\/([^/]+)$/);
-    if (myAccessMatch) {
-      if (req.method !== "GET") {
-        return Response.json({ error: "Method not allowed" }, { status: 405 });
-      }
-
-      let session;
-      try {
-        session = await requireSession(req);
-      } catch {
-        return Response.json({ error: "Unauthorized" }, { status: 401 });
-      }
-
-      const requestId = myAccessMatch[1]!;
-
-      // Get the access request with resource and role info
-      const request = await db
-        .selectFrom("access_request")
-        .leftJoin("resource", "resource.id", "access_request.resource_id")
-        .leftJoin("resource_role", "resource_role.id", "access_request.resource_role_id")
-        .leftJoin("user as owner", "owner.id", "resource.owner_id")
-        .select([
-          "access_request.id",
-          "access_request.requester_id",
-          "access_request.resource_id",
-          "access_request.resource_role_id",
-          "access_request.status",
-          "access_request.reason",
-          "access_request.lease_duration_days",
-          "access_request.expires_at",
-          "access_request.created_at",
-          "access_request.updated_at",
-          "resource.name as resource_name",
-          "resource.description as resource_description",
-          "resource.type as resource_type",
-          "resource.url as resource_url",
-          "resource.requires_approval",
-          "resource.approval_count",
-          "resource_role.name as role_name",
-          "resource_role.description as role_description",
-          "owner.name as owner_name",
-        ])
-        .where("access_request.id", "=", requestId)
-        .where("access_request.requester_id", "=", session.user.id)
-        .executeTakeFirst();
-
-      if (!request) {
-        return Response.json({ error: "Request not found" }, { status: 404 });
-      }
-
-      // Get approvals
-      const approvals = await db
-        .selectFrom("access_approval")
-        .leftJoin("user", "user.id", "access_approval.approver_id")
-        .select([
-          "access_approval.id",
-          "access_approval.decision",
-          "access_approval.comment",
-          "access_approval.created_at",
-          "user.name as approver_name",
-        ])
-        .where("access_approval.access_request_id", "=", requestId)
-        .orderBy("access_approval.created_at", "asc")
-        .execute();
-
-      // Get grant if exists
-      const grant = await db
-        .selectFrom("access_grant")
-        .select([
-          "id",
-          "status",
-          "granted_at",
-          "expires_at",
-          "revoked_at",
-        ])
-        .where("access_request_id", "=", requestId)
-        .where("user_id", "=", session.user.id)
-        .executeTakeFirst();
-
-      return Response.json({
-        ...request,
-        approvals,
-        grant,
-      });
-    }
-
     if (url.pathname.startsWith("/api/")) {
       return Response.json({ error: "Not found" }, { status: 404 });
     }
-
-    // SPA fallback: serve index.html for non-API routes
     return new Response(Bun.file("src/index.html"));
   },
 });

@@ -10,6 +10,10 @@ import * as Mig004 from "./migrations/004_create_access_grants.ts";
 import * as Mig005 from "./migrations/005_create_purchase_requests.ts";
 import * as Mig006 from "./migrations/006_create_audit_log.ts";
 import * as Mig007 from "./migrations/007_create_secrets.ts";
+import * as Mig008 from "./migrations/008_resource_tag_and_visibility.ts";
+import * as Mig009 from "./migrations/009_create_approval_groups.ts";
+import * as Mig010 from "./migrations/010_resource_role_is_admin.ts";
+import * as Mig011 from "./migrations/011_secret_archived_at.ts";
 
 fs.mkdirSync("data", { recursive: true });
 
@@ -32,6 +36,10 @@ export async function migrateToLatest() {
           "005": Mig005,
           "006": Mig006,
           "007": Mig007,
+          "008": Mig008,
+          "009": Mig009,
+          "010": Mig010,
+          "011": Mig011,
         };
       },
     },

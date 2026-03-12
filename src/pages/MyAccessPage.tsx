@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   Globe,
   KeyRound,
-  Server,
   ShoppingCart,
   Clock,
   Infinity,
@@ -91,8 +90,6 @@ function TypeIcon({ type }: { type: string | null }) {
       return <Globe size={14} className="text-blue-500" />;
     case "secure_note":
       return <KeyRound size={14} className="text-amber-500" />;
-    case "infrastructure":
-      return <Server size={14} className="text-emerald-500" />;
     case "purchase":
       return <ShoppingCart size={14} className="text-violet-500" />;
     default:

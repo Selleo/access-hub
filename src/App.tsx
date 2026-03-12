@@ -4,6 +4,9 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AdminResourceNewPage } from "./pages/AdminResourceNewPage";
 import { AdminResourceEditPage } from "./pages/AdminResourceEditPage";
 import { AdminResourcesPage } from "./pages/AdminResourcesPage";
+import { AdminDirectoryUsersPage } from "./pages/AdminDirectoryUsersPage";
+import { AdminDirectoryGroupsPage } from "./pages/AdminDirectoryGroupsPage";
+import { AdminApprovalGroupFormPage } from "./pages/AdminApprovalGroupFormPage";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { AuthProvider, useAuth } from "./auth-context";
 import { LoginPage } from "./pages/LoginPage";
@@ -80,6 +83,48 @@ function AppRoutes() {
           </RequireAuth>
         }
       />
+      <Route
+        path="/admin/directory"
+        element={<Navigate to="/admin/users" replace />}
+      />
+      <Route
+        path="/admin/users"
+        element={
+          <RequireAuth>
+            <AdminDirectoryUsersPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/admin/approval-groups"
+        element={
+          <RequireAuth>
+            <AdminDirectoryGroupsPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/admin/approval-groups/new"
+        element={
+          <RequireAuth>
+            <AdminApprovalGroupFormPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/admin/approval-groups/:id/edit"
+        element={
+          <RequireAuth>
+            <AdminApprovalGroupFormPage />
+          </RequireAuth>
+        }
+      />
+      <Route path="/admin/directory/users" element={<Navigate to="/admin/users" replace />} />
+      <Route
+        path="/admin/directory/groups"
+        element={<Navigate to="/admin/approval-groups" replace />}
+      />
+      <Route path="/admin/groups" element={<Navigate to="/admin/approval-groups" replace />} />
       <Route
         path="/purchase-requests"
         element={

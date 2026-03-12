@@ -3,7 +3,6 @@ import {
   X,
   Globe,
   KeyRound,
-  Server,
   Clock,
   Infinity,
   CheckCircle2,
@@ -84,8 +83,6 @@ function TypeIcon({ type, size = 16 }: { type: string | null; size?: number }) {
       return <Globe size={size} className="text-blue-500" />;
     case "secure_note":
       return <KeyRound size={size} className="text-amber-500" />;
-    case "infrastructure":
-      return <Server size={size} className="text-emerald-500" />;
     default:
       return <Globe size={size} className="text-gray-400" />;
   }
@@ -142,7 +139,7 @@ export function AccessDetailModal({ requestId, open, onClose }: Props) {
     setError("");
     setDetail(null);
 
-    fetch(`/api/my-access/${requestId}`)
+    fetch(`/api/my-access/detail?request_id=${encodeURIComponent(requestId)}`)
       .then(async (res) => {
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));

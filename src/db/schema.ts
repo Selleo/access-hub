@@ -3,6 +3,8 @@ export interface ResourceTable {
   name: string;
   description: string | null;
   type: string;
+  tag: string | null;
+  global_visible: number;
   url: string | null;
   icon_url: string | null;
   owner_id: string;
@@ -16,6 +18,7 @@ export interface ResourceRoleTable {
   id: string;
   resource_id: string;
   name: string;
+  is_admin: number;
   description: string | null;
   requires_approval: number | null;
   approval_count: number | null;
@@ -91,6 +94,23 @@ export interface SecretTable {
   created_by: string;
   created_at: string;
   updated_at: string;
+  archived_at: string | null;
+}
+
+export interface ApprovalGroupTable {
+  id: string;
+  name: string;
+  description: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApprovalGroupMemberTable {
+  id: string;
+  approval_group_id: string;
+  user_id: string;
+  created_at: string;
 }
 
 export interface UserTable {
@@ -113,4 +133,6 @@ export interface Database {
   purchase_request: PurchaseRequestTable;
   audit_log: AuditLogTable;
   secret: SecretTable;
+  approval_group: ApprovalGroupTable;
+  approval_group_member: ApprovalGroupMemberTable;
 }
