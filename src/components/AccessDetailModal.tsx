@@ -300,7 +300,7 @@ export function AccessDetailModal({ requestId, open, onClose }: Props) {
 
               {d.status === "pending" ? (
                 <div className="rounded-xl bg-amber-50 px-4 py-3 text-[13px] text-amber-700">
-                  Waiting for {d.approval_count ?? 1} approval{(d.approval_count ?? 1) !== 1 ? "s" : ""}. Credentials will be visible once approved.
+                  Request is being processed. Credentials will be visible once access is active.
                 </div>
               ) : null}
 

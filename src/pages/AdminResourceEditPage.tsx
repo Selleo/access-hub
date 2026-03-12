@@ -6,12 +6,6 @@ import { Pane } from "../components/Pane";
 import { ResourceFormFields } from "../components/ResourceFormFields";
 import { Check, Copy, Eye, EyeOff, Pencil, Plus, RectangleEllipsis, StickyNote, Timer, Type, Trash2, X } from "lucide-react";
 
-type RoleDraft = {
-  id: string;
-  name: string;
-  isAdmin: boolean;
-};
-
 type SecretType = "text" | "password" | "totp" | "note";
 
 type SecretDraft = {
@@ -29,13 +23,6 @@ type ResourcePayload = {
   tag: string | null;
   global_visible: number;
   url: string | null;
-  requires_approval: number;
-  approval_count: number;
-  roles: Array<{
-    id: string;
-    name: string;
-    is_admin: number;
-  }>;
 };
 
 type SecretsPayload = Array<{
@@ -54,10 +41,6 @@ async function parseJsonResponse<T>(res: Response): Promise<T | null> {
   } catch {
     return null;
   }
-}
-
-function isOwnerRole(name: string) {
-  return name.trim().toLowerCase() === "owner";
 }
 
 function normalizeSecretType(type: string): SecretType {
@@ -137,9 +120,6 @@ export function AdminResourceEditPage() {
     globalVisible: true,
     url: "",
   });
-  const [requiresApproval, setRequiresApproval] = useState(false);
-  const [approvalCount, setApprovalCount] = useState(1);
-  const [roles, setRoles] = useState<RoleDraft[]>([]);
   const [secrets, setSecrets] = useState<SecretDraft[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [editingSecrets, setEditingSecrets] = useState(false);
@@ -188,15 +168,6 @@ export function AdminResourceEditPage() {
         globalVisible: !!resourceData.global_visible,
         url: resourceData.url ?? "",
       });
-      setRequiresApproval(!!resourceData.requires_approval);
-      setApprovalCount(resourceData.approval_count || 1);
-      setRoles(
-        resourceData.roles.map((role) => ({
-          id: role.id,
-          name: role.name,
-          isAdmin: isOwnerRole(role.name) ? true : !!role.is_admin,
-        }))
-      );
       const loadedSecrets = (Array.isArray(secretsData) ? secretsData : []).map((secret) => ({
           id: secret.id,
           name: secret.name,
@@ -238,18 +209,6 @@ export function AdminResourceEditPage() {
       cancelled = true;
     };
   }, [secrets, totpNow]);
-
-  const addRole = () => {
-    setRoles((prev) => [...prev, { id: crypto.randomUUID(), name: "", isAdmin: false }]);
-  };
-
-  const updateRole = (index: number, patch: Partial<RoleDraft>) => {
-    setRoles((prev) => prev.map((role, i) => (i === index ? { ...role, ...patch } : role)));
-  };
-
-  const removeRole = (index: number) => {
-    setRoles((prev) => prev.filter((_, i) => i !== index));
-  };
 
   const updateDraftSecret = (index: number, patch: Partial<SecretDraft>) => {
     setDraftSecrets((prev) => prev.map((secret, i) => (i === index ? { ...secret, ...patch } : secret)));
@@ -416,11 +375,6 @@ export function AdminResourceEditPage() {
       return;
     }
 
-    if (roles.filter((role) => role.name.trim()).length === 0) {
-      setMessage({ type: "error", text: "At least one role is required." });
-      return;
-    }
-
     setSubmitting(true);
     setMessage(null);
 
@@ -435,12 +389,6 @@ export function AdminResourceEditPage() {
         tag: form.tag || null,
         global_visible: form.globalVisible ? 1 : 0,
         url: form.url || null,
-        requires_approval: requiresApproval ? 1 : 0,
-        approval_count: requiresApproval ? approvalCount : 0,
-        roles: roles.map((role) => ({
-          name: role.name,
-          is_admin: role.isAdmin ? 1 : 0,
-        })),
       }),
     });
 
@@ -474,53 +422,6 @@ export function AdminResourceEditPage() {
                 value={form}
                 onChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
               />
-
-              <div className="mt-5 border-t border-[#f0f1f5] pt-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-[14px] font-semibold text-[#232733]">Roles</h3>
-                  <button
-                    type="button"
-                    onClick={addRole}
-                    className="inline-flex items-center gap-1 rounded-lg border border-[#d6dbe8] px-2.5 py-1 text-[12px] text-[#4f566f] hover:bg-[#f6f7fb]"
-                  >
-                    <Plus size={13} /> Add Role
-                  </button>
-                </div>
-
-                <div className="space-y-2">
-                  {roles.map((role, index) => (
-                    <div key={role.id} className="rounded-xl border border-[#e7eaf2] p-3">
-                      <div className="grid gap-2 md:grid-cols-[1fr_auto_auto] md:items-center">
-                        <input
-                          type="text"
-                          value={role.name}
-                          onChange={(e) => updateRole(index, { name: e.target.value })}
-                          placeholder="Role name"
-                          disabled={isOwnerRole(role.name)}
-                          className="w-full md:w-72 rounded-lg border border-[#e7eaf2] px-3 py-2 text-[13px] outline-none focus:border-[#b8bdd0]"
-                        />
-                        <label className="inline-flex items-center gap-2 text-[12px] text-[#6c7285]">
-                          <input
-                            type="checkbox"
-                            checked={role.isAdmin}
-                            onChange={(e) => updateRole(index, { isAdmin: e.target.checked })}
-                            disabled={isOwnerRole(role.name)}
-                          />
-                          Admin
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => removeRole(index)}
-                          disabled={roles.length <= 1 || isOwnerRole(role.name)}
-                          className="inline-flex items-center justify-center rounded-lg border border-[#e7eaf2] px-2 py-2 text-[#6c7285] hover:bg-[#f6f7fb] disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
 
               {message ? (
                 <div

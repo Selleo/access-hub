@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { AppLayout } from "../components/AppLayout";
 import { PageHeader } from "../components/PageHeader";
 import { Pane } from "../components/Pane";
-import { KeyRound, ShoppingCart, X } from "lucide-react";
+import { KeyRound, LockOpen, ShoppingCart, X } from "lucide-react";
 
 async function parseJsonResponse<T>(res: Response): Promise<T | null> {
   const text = await res.text();
@@ -67,8 +67,8 @@ export function RequestsPage() {
     <AppLayout>
       <PageHeader title="Requests" />
 
-      <div className="mt-5 grid gap-4 md:grid-cols-2">
-        <Pane className="p-5">
+      <div className="mx-auto mt-5 grid min-h-[54vh] max-w-6xl content-center gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <Pane className="flex h-full min-h-[230px] flex-col p-5">
           <div className="flex items-start justify-between">
             <div>
               <h2 className="text-[16px] font-semibold text-[#232733]">Access Request</h2>
@@ -76,37 +76,62 @@ export function RequestsPage() {
                 Request access to software and secure note resources.
               </p>
             </div>
-            <KeyRound size={18} className="text-[#6c7285]" />
+            <LockOpen size={18} className="text-[#6c7285]" />
           </div>
-          <button
-            type="button"
-            onClick={() => navigate("/resources")}
-            className="mt-4 rounded-xl bg-[#232733] px-4 py-2 text-[14px] font-medium text-white hover:bg-[#1a1d27]"
-          >
-            Request Access
-          </button>
+          <div className="mt-auto pt-5">
+            <button
+              type="button"
+              onClick={() => navigate("/resources")}
+              className="inline-flex h-10 items-center justify-center rounded-xl bg-[#232733] px-4 text-[14px] font-medium text-white hover:bg-[#1a1d27]"
+            >
+              Request Access
+            </button>
+          </div>
         </Pane>
 
-        <Pane className="p-5">
+        <Pane className="flex h-full min-h-[230px] flex-col p-5">
           <div className="flex items-start justify-between">
             <div>
               <h2 className="text-[16px] font-semibold text-[#232733]">Purchase Request</h2>
               <p className="mt-1 text-[13px] text-[#8990a3]">
-                Request new software purchases and track approval status.
+                Request new software purchases and track request status.
               </p>
             </div>
             <ShoppingCart size={18} className="text-[#6c7285]" />
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setPurchaseOpen(true);
-              setFormMessage(null);
-            }}
-            className="mt-4 rounded-xl bg-[#232733] px-4 py-2 text-[14px] font-medium text-white hover:bg-[#1a1d27]"
-          >
-            Create Purchase Request
-          </button>
+          <div className="mt-auto pt-5">
+            <button
+              type="button"
+              onClick={() => {
+                setPurchaseOpen(true);
+                setFormMessage(null);
+              }}
+              className="inline-flex h-10 items-center justify-center rounded-xl bg-[#232733] px-4 text-[14px] font-medium text-white hover:bg-[#1a1d27]"
+            >
+              Create Purchase Request
+            </button>
+          </div>
+        </Pane>
+
+        <Pane className="flex h-full min-h-[230px] flex-col p-5">
+          <div className="flex items-start justify-between">
+            <div>
+              <h2 className="text-[16px] font-semibold text-[#232733]">Request API Key</h2>
+              <p className="mt-1 text-[13px] text-[#8990a3]">
+                Request access to externally managed API keys and credentials.
+              </p>
+            </div>
+            <KeyRound size={18} className="text-[#6c7285]" />
+          </div>
+          <div className="mt-auto pt-5">
+            <button
+              type="button"
+              onClick={() => navigate("/resources")}
+              className="inline-flex h-10 items-center justify-center rounded-xl bg-[#232733] px-4 text-[14px] font-medium text-white hover:bg-[#1a1d27]"
+            >
+              Request API Key
+            </button>
+          </div>
         </Pane>
       </div>
 

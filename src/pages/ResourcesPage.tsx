@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Search,
-  Globe,
+  Folder,
   KeyRound,
-  ShieldCheck,
-  ShieldOff,
   Layers,
   LockOpen,
 } from "lucide-react";
@@ -21,12 +19,9 @@ type Resource = {
   tag?: string | null;
   url: string | null;
   icon_url: string | null;
-  requires_approval: number;
-  approval_count: number;
   created_at: string;
   owner_name: string | null;
   owner_image: string | null;
-  role_count: number;
 };
 
 async function parseJsonResponse<T>(res: Response): Promise<T | null> {
@@ -42,11 +37,11 @@ async function parseJsonResponse<T>(res: Response): Promise<T | null> {
 function TypeIcon({ type, size = 20 }: { type: string; size?: number }) {
   switch (type) {
     case "software":
-      return <Globe size={size} />;
+      return <Folder size={size} />;
     case "secure_note":
       return <KeyRound size={size} />;
     default:
-      return <Globe size={size} />;
+      return <Folder size={size} />;
   }
 }
 
@@ -92,19 +87,7 @@ function ResourceCard({
             ) : null}
           </div>
         </div>
-        <span className="text-[12px] text-[#8990a3]">
-          {resource.requires_approval ? (
-            <span className="inline-flex items-center gap-1.5">
-              <ShieldCheck size={14} className="text-amber-500" />
-              {resource.approval_count} approval{resource.approval_count !== 1 ? "s" : ""}
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5">
-              <ShieldOff size={14} className="text-emerald-500" />
-              Auto-approved
-            </span>
-          )}
-        </span>
+        <span className="text-[12px] text-[#8990a3]">Instant access</span>
       </div>
 
       {resource.description ? (

@@ -13,8 +13,6 @@ type ResourceItem = {
   tag: string | null;
   global_visible: number;
   url: string | null;
-  requires_approval: number;
-  approval_count: number;
   created_at: string;
   owner_name: string | null;
   owner_email: string | null;
@@ -119,7 +117,6 @@ export function AdminResourcesPage() {
                   <th className="px-4 py-3">Tag</th>
                   <th className="px-4 py-3">Type</th>
                   <th className="px-4 py-3">Visible</th>
-                  <th className="px-4 py-3">Approval</th>
                   <th className="px-4 py-3">Owner</th>
                   <th className="px-4 py-3">Created</th>
                   <th className="px-4 py-3">Actions</th>
@@ -148,11 +145,6 @@ export function AdminResourcesPage() {
                     </td>
                     <td className="px-4 py-3">{humanType(resource.type)}</td>
                     <td className="px-4 py-3">{resource.global_visible ? "Yes" : "No"}</td>
-                    <td className="px-4 py-3">
-                      {resource.requires_approval
-                        ? `${resource.approval_count} approval${resource.approval_count !== 1 ? "s" : ""}`
-                        : "Auto"}
-                    </td>
                     <td className="px-4 py-3">{resource.owner_name ?? resource.owner_email ?? "Unknown"}</td>
                     <td className="px-4 py-3">{new Date(resource.created_at).toLocaleDateString()}</td>
                     <td className="px-4 py-3">

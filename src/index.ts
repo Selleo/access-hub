@@ -85,8 +85,6 @@ const server = serve({
           "resource.global_visible",
           "resource.url",
           "resource.icon_url",
-          "resource.requires_approval",
-          "resource.approval_count",
           "resource.created_at",
           "user.name as owner_name",
           "user.image as owner_image",
@@ -112,24 +110,7 @@ const server = serve({
       }
 
       const resources = await query.execute();
-
-      // Get role counts per resource
-      const roleCounts = await db
-        .selectFrom("resource_role")
-        .select(["resource_id", db.fn.count("id").as("role_count")])
-        .groupBy("resource_id")
-        .execute();
-
-      const roleCountMap = new Map(
-        roleCounts.map((r) => [r.resource_id, Number(r.role_count)])
-      );
-
-      const result = resources.map((r) => ({
-        ...r,
-        role_count: roleCountMap.get(r.id) ?? 0,
-      }));
-
-      return Response.json(result);
+      return Response.json(resources);
     },
     "/api/admin/resources": async (req) => {
       try {
@@ -152,31 +133,13 @@ const server = serve({
               "resource.tag",
               "resource.global_visible",
               "resource.url",
-              "resource.requires_approval",
-              "resource.approval_count",
               "resource.created_at",
               "user.name as owner_name",
               "user.email as owner_email",
             ])
             .orderBy("resource.created_at", "desc")
             .execute();
-
-          const roleCounts = await db
-            .selectFrom("resource_role")
-            .select(["resource_id", db.fn.count("id").as("role_count")])
-            .groupBy("resource_id")
-            .execute();
-
-          const roleCountMap = new Map(
-            roleCounts.map((r) => [r.resource_id, Number(r.role_count)])
-          );
-
-          return Response.json(
-            resources.map((resource) => ({
-              ...resource,
-              role_count: roleCountMap.get(resource.id) ?? 0,
-            }))
-          );
+          return Response.json(resources);
         }
 
         if (req.method === "POST") {
@@ -187,12 +150,6 @@ const server = serve({
             tag?: string | null;
             global_visible?: number;
             url?: string | null;
-            requires_approval?: number;
-            approval_count?: number;
-            roles?: Array<{
-              name?: string;
-              is_admin?: number | null;
-            }>;
           };
           try {
             body = await req.json();
@@ -206,9 +163,6 @@ const server = serve({
           const tag = body.tag?.trim() ?? null;
           const globalVisible = body.global_visible == null ? 1 : body.global_visible ? 1 : 0;
           const url = body.url?.trim() ?? null;
-          const requiresApproval = body.requires_approval ? 1 : 0;
-          const approvalCount = requiresApproval ? Math.max(1, Number(body.approval_count ?? 1)) : 0;
-          const roles = body.roles ?? [];
 
           if (!name || !type) {
             return Response.json({ error: "name and type are required" }, { status: 400 });
@@ -226,21 +180,6 @@ const server = serve({
             }
           }
 
-          const cleanRoles = roles
-            .map((role) => ({
-              name: role.name?.trim() ?? "",
-              is_admin: role.is_admin ? 1 : 0,
-            }))
-            .filter((role) => role.name.length > 0);
-          const rolesToCreate = [...cleanRoles];
-          const hasOwner = rolesToCreate.some((role) => role.name.trim().toLowerCase() === "owner");
-          if (!hasOwner) {
-            rolesToCreate.push({
-              name: "Owner",
-              is_admin: 1,
-            });
-          }
-
           const resourceId = crypto.randomUUID();
           const now = new Date().toISOString();
 
@@ -256,28 +195,25 @@ const server = serve({
               url,
               icon_url: null,
               owner_id: session.user.id,
-              requires_approval: requiresApproval,
-              approval_count: approvalCount,
+              requires_approval: 0,
+              approval_count: 0,
               created_at: now,
               updated_at: now,
             })
             .execute();
-
-          for (const role of rolesToCreate) {
-            await db
-              .insertInto("resource_role")
-              .values({
-                id: crypto.randomUUID(),
-                resource_id: resourceId,
-                name: role.name,
-                description: null,
-                requires_approval: null,
-                approval_count: null,
-                is_admin: role.is_admin,
-                created_at: now,
-              })
-              .execute();
-          }
+          await db
+            .insertInto("resource_role")
+            .values({
+              id: crypto.randomUUID(),
+              resource_id: resourceId,
+              name: "Default",
+              description: null,
+              requires_approval: null,
+              approval_count: null,
+              is_admin: 0,
+              created_at: now,
+            })
+            .execute();
 
           await db
             .insertInto("audit_log")
@@ -292,7 +228,6 @@ const server = serve({
                 type,
                 tag,
                 global_visible: globalVisible,
-                role_count: rolesToCreate.length,
               }),
               ip_address: req.headers.get("x-forwarded-for") ?? null,
               created_at: now,
@@ -683,8 +618,6 @@ const server = serve({
             "tag",
             "global_visible",
             "url",
-            "requires_approval",
-            "approval_count",
           ])
           .where("id", "=", resourceId)
           .executeTakeFirst();
@@ -693,16 +626,8 @@ const server = serve({
           return Response.json({ error: "Resource not found" }, { status: 404 });
         }
 
-        const roles = await db
-          .selectFrom("resource_role")
-          .select(["id", "name", "is_admin"])
-          .where("resource_id", "=", resourceId)
-          .orderBy("name", "asc")
-          .execute();
-
         return Response.json({
           ...resource,
-          roles,
         });
       }
 
@@ -725,12 +650,6 @@ const server = serve({
           tag?: string | null;
           global_visible?: number;
           url?: string | null;
-          requires_approval?: number;
-          approval_count?: number;
-          roles?: Array<{
-            name?: string;
-            is_admin?: number | null;
-          }>;
         };
         try {
           body = await req.json();
@@ -757,9 +676,6 @@ const server = serve({
         const tag = body.tag?.trim() ?? null;
         const globalVisible = body.global_visible == null ? 1 : body.global_visible ? 1 : 0;
         const requestUrl = body.url?.trim() ?? null;
-        const requiresApproval = body.requires_approval ? 1 : 0;
-        const approvalCount = requiresApproval ? Math.max(1, Number(body.approval_count ?? 1)) : 0;
-        const roles = body.roles ?? [];
 
         if (!name || !type) {
           return Response.json({ error: "name and type are required" }, { status: 400 });
@@ -777,28 +693,6 @@ const server = serve({
           }
         }
 
-        const cleanRoles = roles
-          .map((role) => ({
-            name: role.name?.trim() ?? "",
-            is_admin: role.is_admin ? 1 : 0,
-          }))
-          .filter((role) => role.name.length > 0);
-
-        if (cleanRoles.length === 0) {
-          return Response.json(
-            { error: "At least one role is required to update a resource" },
-            { status: 400 }
-          );
-        }
-
-        const hasOwner = cleanRoles.some((role) => role.name.trim().toLowerCase() === "owner");
-        if (!hasOwner) {
-          return Response.json(
-            { error: "Owner role is required and cannot be removed" },
-            { status: 400 }
-          );
-        }
-
         const now = new Date().toISOString();
 
         await db
@@ -810,30 +704,12 @@ const server = serve({
             tag,
             global_visible: globalVisible,
             url: requestUrl,
-            requires_approval: requiresApproval,
-            approval_count: approvalCount,
+            requires_approval: 0,
+            approval_count: 0,
             updated_at: now,
           })
           .where("id", "=", resourceId)
           .execute();
-
-        await db.deleteFrom("resource_role").where("resource_id", "=", resourceId).execute();
-        for (const role of cleanRoles) {
-          const isOwner = role.name.trim().toLowerCase() === "owner";
-          await db
-            .insertInto("resource_role")
-            .values({
-              id: crypto.randomUUID(),
-              resource_id: resourceId,
-              name: role.name,
-              description: null,
-              requires_approval: null,
-              approval_count: null,
-              is_admin: isOwner ? 1 : role.is_admin,
-              created_at: now,
-            })
-            .execute();
-        }
 
         await db
           .insertInto("audit_log")
@@ -848,7 +724,6 @@ const server = serve({
               type,
               tag,
               global_visible: globalVisible,
-              role_count: cleanRoles.length,
             }),
             ip_address: req.headers.get("x-forwarded-for") ?? null,
             created_at: now,
@@ -1336,222 +1211,10 @@ const server = serve({
       return Response.json(roles);
     },
     "/api/access-requests/review": async (req) => {
-      if (req.method !== "PATCH") {
-        return Response.json({ error: "Method not allowed" }, { status: 405 });
-      }
-
-      let session;
-      try {
-        session = await requireSession(req);
-      } catch {
-        return Response.json({ error: "Unauthorized" }, { status: 401 });
-      }
-
-      let body: { id?: string; status?: string };
-      try {
-        body = await req.json();
-      } catch {
-        return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-      }
-
-      const requestId = body.id?.trim() ?? "";
-      const nextStatus = body.status;
-      if (!requestId) return Response.json({ error: "id is required" }, { status: 400 });
-      if (!nextStatus || !["approved", "rejected"].includes(nextStatus)) {
-        return Response.json(
-          { error: "status must be one of: approved, rejected" },
-          { status: 400 }
-        );
-      }
-
-      const existing = await db
-        .selectFrom("access_request")
-        .select([
-          "id",
-          "requester_id",
-          "resource_id",
-          "resource_role_id",
-          "status",
-          "expires_at",
-        ])
-        .where("id", "=", requestId)
-        .executeTakeFirst();
-
-      if (!existing) {
-        return Response.json({ error: "Access request not found" }, { status: 404 });
-      }
-
-      if (existing.requester_id === session.user.id) {
-        return Response.json(
-          { error: "You cannot approve your own access request" },
-          { status: 403 }
-        );
-      }
-
-      if (existing.status !== "pending") {
-        return Response.json(
-          { error: `Access request is already ${existing.status}` },
-          { status: 409 }
-        );
-      }
-
-      const now = new Date().toISOString();
-
-      await db
-        .updateTable("access_request")
-        .set({
-          status: nextStatus,
-          updated_at: now,
-        })
-        .where("id", "=", requestId)
-        .execute();
-
-      if (nextStatus === "approved") {
-        const grantId = crypto.randomUUID();
-        await db
-          .insertInto("access_grant")
-          .values({
-            id: grantId,
-            user_id: existing.requester_id,
-            resource_id: existing.resource_id,
-            resource_role_id: existing.resource_role_id,
-            access_request_id: existing.id,
-            status: "active",
-            granted_at: now,
-            expires_at: existing.expires_at,
-            revoked_at: null,
-            created_at: now,
-          })
-          .execute();
-
-        await db
-          .insertInto("audit_log")
-          .values({
-            id: crypto.randomUUID(),
-            actor_id: session.user.id,
-            action: "access.granted",
-            entity_type: "access_grant",
-            entity_id: grantId,
-            metadata: JSON.stringify({
-              mode: "manual",
-              access_request_id: existing.id,
-              resource_id: existing.resource_id,
-              resource_role_id: existing.resource_role_id,
-              expires_at: existing.expires_at,
-            }),
-            ip_address: req.headers.get("x-forwarded-for") ?? null,
-            created_at: now,
-          })
-          .execute();
-      }
-
-      await db
-        .insertInto("audit_log")
-        .values({
-          id: crypto.randomUUID(),
-          actor_id: session.user.id,
-          action: "access.reviewed",
-          entity_type: "access_request",
-          entity_id: requestId,
-          metadata: JSON.stringify({
-            to: nextStatus,
-          }),
-          ip_address: req.headers.get("x-forwarded-for") ?? null,
-          created_at: now,
-        })
-        .execute();
-
-      return Response.json({ id: requestId, status: nextStatus });
+      return Response.json({ error: "Approval flow is disabled" }, { status: 410 });
     },
     "/api/purchase-requests/review": async (req) => {
-      if (req.method !== "PATCH") {
-        return Response.json({ error: "Method not allowed" }, { status: 405 });
-      }
-
-      let session;
-      try {
-        session = await requireSession(req);
-      } catch {
-        return Response.json({ error: "Unauthorized" }, { status: 401 });
-      }
-
-      let body: { id?: string; status?: string };
-      try {
-        body = await req.json();
-      } catch {
-        return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-      }
-
-      const requestId = body.id?.trim() ?? "";
-      const nextStatus = body.status;
-      if (!requestId) return Response.json({ error: "id is required" }, { status: 400 });
-      if (!nextStatus || !["approved", "rejected", "purchased"].includes(nextStatus)) {
-        return Response.json(
-          { error: "status must be one of: approved, rejected, purchased" },
-          { status: 400 }
-        );
-      }
-
-      const existing = await db
-        .selectFrom("purchase_request")
-        .select(["id", "requester_id", "status"])
-        .where("id", "=", requestId)
-        .executeTakeFirst();
-
-      if (!existing) {
-        return Response.json({ error: "Purchase request not found" }, { status: 404 });
-      }
-
-      if (existing.requester_id === session.user.id) {
-        return Response.json(
-          { error: "You cannot review your own purchase request" },
-          { status: 403 }
-        );
-      }
-
-      const validTransition =
-        (existing.status === "pending" && (nextStatus === "approved" || nextStatus === "rejected")) ||
-        (existing.status === "approved" && nextStatus === "purchased");
-
-      if (!validTransition) {
-        return Response.json(
-          {
-            error: `Invalid status transition from ${existing.status} to ${nextStatus}`,
-          },
-          { status: 409 }
-        );
-      }
-
-      const now = new Date().toISOString();
-
-      await db
-        .updateTable("purchase_request")
-        .set({
-          status: nextStatus,
-          reviewer_id: session.user.id,
-          updated_at: now,
-        })
-        .where("id", "=", requestId)
-        .execute();
-
-      await db
-        .insertInto("audit_log")
-        .values({
-          id: crypto.randomUUID(),
-          actor_id: session.user.id,
-          action: "purchase.status_changed",
-          entity_type: "purchase_request",
-          entity_id: requestId,
-          metadata: JSON.stringify({
-            from: existing.status,
-            to: nextStatus,
-          }),
-          ip_address: req.headers.get("x-forwarded-for") ?? null,
-          created_at: now,
-        })
-        .execute();
-
-      return Response.json({ id: requestId, status: nextStatus });
+      return Response.json({ error: "Approval flow is disabled" }, { status: 410 });
     },
     "/api/my-access/detail": async (req) => {
       if (req.method !== "GET") {
@@ -1653,7 +1316,6 @@ const server = serve({
 
         let body: {
           resource_id: string;
-          resource_role_id: string;
           lease_duration_days: number | null;
           reason: string | null;
         };
@@ -1663,16 +1325,16 @@ const server = serve({
           return Response.json({ error: "Invalid JSON body" }, { status: 400 });
         }
 
-        const { resource_id, resource_role_id, lease_duration_days, reason } = body;
+        const { resource_id, lease_duration_days, reason } = body;
 
-        if (!resource_id || !resource_role_id) {
-          return Response.json({ error: "resource_id and resource_role_id are required" }, { status: 400 });
+        if (!resource_id) {
+          return Response.json({ error: "resource_id is required" }, { status: 400 });
         }
 
-        // Verify resource and role exist
+        // Verify resource exists
         const resource = await db
           .selectFrom("resource")
-          .select(["id", "requires_approval", "approval_count"])
+          .select(["id"])
           .where("id", "=", resource_id)
           .executeTakeFirst();
 
@@ -1680,37 +1342,50 @@ const server = serve({
           return Response.json({ error: "Resource not found" }, { status: 404 });
         }
 
-        const role = await db
+        let role = await db
           .selectFrom("resource_role")
           .select(["id"])
-          .where("id", "=", resource_role_id)
           .where("resource_id", "=", resource_id)
+          .orderBy("created_at", "asc")
           .executeTakeFirst();
 
         if (!role) {
-          return Response.json({ error: "Role not found" }, { status: 404 });
+          const roleId = crypto.randomUUID();
+          const now = new Date().toISOString();
+          await db
+            .insertInto("resource_role")
+            .values({
+              id: roleId,
+              resource_id: resource_id,
+              name: "Default",
+              description: null,
+              requires_approval: null,
+              approval_count: null,
+              is_admin: 0,
+              created_at: now,
+            })
+            .execute();
+          role = { id: roleId };
         }
 
-        // Check for existing pending request
+        // Check for existing active request
         const existing = await db
           .selectFrom("access_request")
           .select("id")
           .where("requester_id", "=", session.user.id)
           .where("resource_id", "=", resource_id)
-          .where("resource_role_id", "=", resource_role_id)
-          .where("status", "=", "pending")
+          .where("resource_role_id", "=", role.id)
+          .where("status", "in", ["pending", "approved"])
           .executeTakeFirst();
 
         if (existing) {
-          return Response.json({ error: "You already have a pending request for this role" }, { status: 409 });
+          return Response.json({ error: "You already have an access request for this resource" }, { status: 409 });
         }
-
-        const needsApproval = !!resource.requires_approval;
 
         const now = new Date().toISOString();
         const requestId = crypto.randomUUID();
 
-        const status = needsApproval ? "pending" : "approved";
+        const status = "approved";
 
         let expiresAt: string | null = null;
         if (lease_duration_days && lease_duration_days > 0) {
@@ -1725,7 +1400,7 @@ const server = serve({
             id: requestId,
             requester_id: session.user.id,
             resource_id,
-            resource_role_id,
+            resource_role_id: role.id,
             status,
             reason: reason ?? null,
             lease_duration_days: lease_duration_days ?? null,
@@ -1735,45 +1410,42 @@ const server = serve({
           })
           .execute();
 
-        // If auto-approved, create the grant immediately
-        if (!needsApproval) {
-          const grantId = crypto.randomUUID();
-          await db
-            .insertInto("access_grant")
-            .values({
-              id: grantId,
-              user_id: session.user.id,
-              resource_id,
-              resource_role_id,
-              access_request_id: requestId,
-              status: "active",
-              granted_at: now,
-              expires_at: expiresAt,
-              revoked_at: null,
-              created_at: now,
-            })
-            .execute();
+        const grantId = crypto.randomUUID();
+        await db
+          .insertInto("access_grant")
+          .values({
+            id: grantId,
+            user_id: session.user.id,
+            resource_id,
+            resource_role_id: role.id,
+            access_request_id: requestId,
+            status: "active",
+            granted_at: now,
+            expires_at: expiresAt,
+            revoked_at: null,
+            created_at: now,
+          })
+          .execute();
 
-          await db
-            .insertInto("audit_log")
-            .values({
-              id: crypto.randomUUID(),
-              actor_id: session.user.id,
-              action: "access.granted",
-              entity_type: "access_grant",
-              entity_id: grantId,
-              metadata: JSON.stringify({
-                mode: "auto",
-                access_request_id: requestId,
-                resource_id,
-                resource_role_id,
-                expires_at: expiresAt,
-              }),
-              ip_address: req.headers.get("x-forwarded-for") ?? null,
-              created_at: now,
-            })
-            .execute();
-        }
+        await db
+          .insertInto("audit_log")
+          .values({
+            id: crypto.randomUUID(),
+            actor_id: session.user.id,
+            action: "access.granted",
+            entity_type: "access_grant",
+            entity_id: grantId,
+            metadata: JSON.stringify({
+              mode: "auto",
+              access_request_id: requestId,
+              resource_id,
+              resource_role_id: role.id,
+              expires_at: expiresAt,
+            }),
+            ip_address: req.headers.get("x-forwarded-for") ?? null,
+            created_at: now,
+          })
+          .execute();
 
         // Audit log
         await db
@@ -1786,7 +1458,7 @@ const server = serve({
             entity_id: requestId,
             metadata: JSON.stringify({
               resource_id,
-              resource_role_id,
+              resource_role_id: role.id,
               status,
               lease_duration_days,
             }),
@@ -2055,51 +1727,9 @@ const server = serve({
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const accessApprovals = await db
-          .selectFrom("access_request")
-          .leftJoin("resource", "resource.id", "access_request.resource_id")
-          .leftJoin("resource_role", "resource_role.id", "access_request.resource_role_id")
-          .leftJoin("user as requester", "requester.id", "access_request.requester_id")
-          .select([
-            "access_request.id",
-            "access_request.requester_id",
-            "access_request.status",
-            "access_request.reason",
-            "access_request.lease_duration_days",
-            "access_request.expires_at",
-            "access_request.created_at",
-            "resource.name as resource_name",
-            "resource_role.name as role_name",
-            "requester.name as requester_name",
-            "requester.email as requester_email",
-          ])
-          .where("access_request.status", "=", "pending")
-          .where("access_request.requester_id", "!=", session.user.id)
-          .orderBy("access_request.created_at", "desc")
-          .execute();
-
-        const purchaseApprovals = await db
-          .selectFrom("purchase_request")
-          .leftJoin("user as requester", "requester.id", "purchase_request.requester_id")
-          .select([
-            "purchase_request.id",
-            "purchase_request.requester_id",
-            "purchase_request.software_name",
-            "purchase_request.justification",
-            "purchase_request.estimated_cost",
-            "purchase_request.status",
-            "purchase_request.created_at",
-            "requester.name as requester_name",
-            "requester.email as requester_email",
-          ])
-          .where("purchase_request.status", "=", "pending")
-          .where("purchase_request.requester_id", "!=", session.user.id)
-          .orderBy("purchase_request.created_at", "desc")
-          .execute();
-
         return Response.json({
-          access_approvals: accessApprovals,
-          purchase_approvals: purchaseApprovals,
+          access_approvals: [],
+          purchase_approvals: [],
         });
       } catch (error) {
         console.error("Failed to fetch my approvals", error);

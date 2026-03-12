@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
-  Globe,
+  Folder,
+  FolderCog,
   KeyRound,
   ScrollText,
   ShieldCheck,
@@ -53,7 +54,7 @@ export function SidebarNav() {
         />
         <NavItem
           active={path === "/resources" || path.startsWith("/resources/")}
-          icon={<Globe size={16} />}
+          icon={<Folder size={16} />}
           label="Resources"
           onClick={() => navigate("/resources")}
         />
@@ -67,19 +68,13 @@ export function SidebarNav() {
           label="My Access"
           onClick={() => navigate("/my-access")}
         />
-        <NavItem
-          active={path === "/approvals"}
-          icon={<ShieldCheck size={16} />}
-          label="Approvals"
-          onClick={() => navigate("/approvals")}
-        />
       </div>
 
       <p className="mt-5 text-[11px] font-semibold tracking-[0.14em] text-[#7c8295]">ADMIN</p>
       <div className="mt-2 space-y-1">
         <NavItem
           active={path === "/admin/resources" || path.startsWith("/admin/resources/")}
-          icon={<Globe size={16} />}
+          icon={<FolderCog size={16} />}
           label="Manage Resources"
           onClick={() => navigate("/admin/resources")}
         />

@@ -616,4 +616,39 @@ for (const r of resources) {
 }
 
 console.log(`Seeded ${resources.length} resources with roles.`);
+
+const approvalGroups = ["HR", "Finance", "CTO", "IT"] as const;
+
+await db
+  .deleteFrom("approval_group_member")
+  .where("approval_group_id", "like", "seed-approval-group-%")
+  .execute();
+await db.deleteFrom("approval_group").where("id", "like", "seed-approval-group-%").execute();
+
+for (const groupName of approvalGroups) {
+  const groupId = `seed-approval-group-${groupName.toLowerCase().replace(/\s+/g, "-")}`;
+  await db
+    .insertInto("approval_group")
+    .values({
+      id: groupId,
+      name: groupName,
+      description: null,
+      created_by: ownerId,
+      created_at: now,
+      updated_at: now,
+    })
+    .execute();
+
+  await db
+    .insertInto("approval_group_member")
+    .values({
+      id: `seed-approval-group-member-${groupName.toLowerCase().replace(/\s+/g, "-")}-${ownerId}`,
+      approval_group_id: groupId,
+      user_id: ownerId,
+      created_at: now,
+    })
+    .execute();
+}
+
+console.log(`Seeded ${approvalGroups.length} approval groups.`);
 await db.destroy();

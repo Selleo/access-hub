@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AppLayout } from "../components/AppLayout";
 import { PageHeader } from "../components/PageHeader";
 import { Pane } from "../components/Pane";
-import { Check, ShoppingCart, X } from "lucide-react";
+import { ShoppingCart } from "lucide-react";
 
 type PurchaseRequest = {
   id: string;
@@ -60,7 +60,6 @@ export function PurchaseRequestsPage() {
   const [estimatedCost, setEstimatedCost] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formMessage, setFormMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   const fetchRequests = async (status: string) => {
     setLoading(true);
@@ -124,26 +123,6 @@ export function PurchaseRequestsPage() {
     setFormMessage({ type: "success", text: "Purchase request submitted." });
     await fetchRequests(activeStatus);
     setSubmitting(false);
-  };
-
-  const updateStatus = async (id: string, status: "approved" | "rejected" | "purchased") => {
-    setActionLoadingId(id);
-
-    const res = await fetch("/api/purchase-requests/review", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, status }),
-    });
-
-    if (!res.ok) {
-      const err = await parseJsonResponse<{ error?: string }>(res);
-      setFormMessage({ type: "error", text: err?.error ?? "Failed to update request status." });
-      setActionLoadingId(null);
-      return;
-    }
-
-    await fetchRequests(activeStatus);
-    setActionLoadingId(null);
   };
 
   return (
@@ -242,7 +221,7 @@ export function PurchaseRequestsPage() {
         </Pane>
 
         <Pane className="p-5">
-          <h2 className="mb-4 text-[16px] font-semibold text-[#232733]">Review Queue</h2>
+          <h2 className="mb-4 text-[16px] font-semibold text-[#232733]">Purchase Requests</h2>
 
           <div className="mb-4 flex gap-1 rounded-xl bg-[#f1f2f6] p-1">
             {STATUS_TABS.map((tab) => (
@@ -294,42 +273,6 @@ export function PurchaseRequestsPage() {
                     ) : null}
                   </div>
 
-                  {item.can_review ? (
-                    <div className="mt-3 flex gap-2">
-                      {item.status === "pending" ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => void updateStatus(item.id, "approved")}
-                            disabled={actionLoadingId === item.id}
-                            className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            <Check size={13} />
-                            Approve
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void updateStatus(item.id, "rejected")}
-                            disabled={actionLoadingId === item.id}
-                            className="flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            <X size={13} />
-                            Reject
-                          </button>
-                        </>
-                      ) : null}
-                      {item.status === "approved" ? (
-                        <button
-                          type="button"
-                          onClick={() => void updateStatus(item.id, "purchased")}
-                          disabled={actionLoadingId === item.id}
-                          className="rounded-lg bg-[#232733] px-3 py-1.5 text-[12px] font-medium text-white hover:bg-[#1a1d27] disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          Mark Purchased
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : null}
                 </div>
               ))}
             </div>

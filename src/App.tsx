@@ -7,7 +7,6 @@ import { AdminResourcesPage } from "./pages/AdminResourcesPage";
 import { AdminDirectoryUsersPage } from "./pages/AdminDirectoryUsersPage";
 import { AdminDirectoryGroupsPage } from "./pages/AdminDirectoryGroupsPage";
 import { AdminApprovalGroupFormPage } from "./pages/AdminApprovalGroupFormPage";
-import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { AuthProvider, useAuth } from "./auth-context";
 import { LoginPage } from "./pages/LoginPage";
 import { AuditLogPage } from "./pages/AuditLogPage";
@@ -157,14 +156,7 @@ function AppRoutes() {
           </RequireAuth>
         }
       />
-      <Route
-        path="/approvals"
-        element={
-          <RequireAuth>
-            <ApprovalsPage />
-          </RequireAuth>
-        }
-      />
+      <Route path="/approvals" element={<Navigate to="/my-access" replace />} />
       <Route
         path="/login"
         element={
